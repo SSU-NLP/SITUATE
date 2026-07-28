@@ -2564,3 +2564,83 @@ codex 지적대로 이것은 **"aspect 전이 규칙 검증"**이지 **"결정�
 `aspect`(사건의 시작·진행·완료)와 목표지향 사슬에서의 기능은 관련되나 동일하지 않으므로,
 **본 실패는 결정→행동→완료 아이디어의 반증이 아니다.** 그 아이디어를 실제로 검정하려면 새 라벨
 추출(= 새 평가 자료)이 필요하며, 그것은 D-B21 중단조건이 허용하는 유일한 경로다.
+
+## D-B22 — 🔒 사전등록: **의도 사슬 역할(intentional chain role) 조작화** (2026-07-28, 결과 보기 전)
+
+**⚠️ 결과 보기 전 작성.** D-B21 중단조건이 허용한 유일한 경로(**별도 가설 + 새 평가 자료**)를 밟는다.
+D-B21 은 *기존 aspect 규칙 교정*이었고 본 항목은 **새 라벨 추출**이다 — 다른 가설이다.
+설계 = **codex 위임**(CLAUDE.md 최상위 규칙, 2026-07-28 자문 3회차).
+
+### 동결 보호 (구현 제약)
+기존 causality 프롬프트에 필드를 추가하면 `prompt_sha256` 이 바뀌어 **동결 앵커 v3.1 이 무효**가 된다.
+따라서 **6번째 별도 축 `chainrole`** 로 붙인다 — 자체 프롬프트·자체 파일(`chainrole_states.jsonl`).
+**동결 5축과 `reset_matrix` 는 손대지 않는다.** 채택될 경우에만 5축 규칙 교체를 별도 결정한다.
+
+### A. 필드 정의 — `intentional_chain_role` (8값, 닫힌 목록)
+D(commitment) / A(execution) / C(attainment) 3비트의 8조합:
+`outside_chain` · `commitment` · `execution` · `attainment` · `commitment_execution` ·
+`commitment_attainment` · `execution_attainment` · `commitment_execution_attainment`
+
+- **복합값을 둔다** — 한 문장에 결정+행동이 압축되는 경우를 보존(codex 경고 (ii) 대응).
+- **`unclear` 를 두지 않는다** — 모델의 확신 부족을 담는 도피 범주가 되어 #2(reqprod 빈집합 55%) 재현 위험.
+- **`outside_chain` 은 둔다** — 상태·지각·배경 문장을 억지로 분류하는 오류 방지. 쏠림은 sanity 로 감시.
+- **Stage-1 `goals` 를 참조하지 않는다** — 참조하면 intentionality 축과 중복되고 목표 목록의 누락·
+  추상도에 종속된다. 이 필드는 "어느 장기 목표인가"가 아니라 **문장에 표면화된 역할**을 잰다.
+  ⇒ 장기 목표 완료 판정은 **별도 가설**로 남긴다(codex 경고 (iii) 대응).
+
+### B. Stage-2 지시문 (그대로 사용, G1/G2/G3 준수 — 이전상태·변화·경계·novelty 미질의)
+```
+Classify the intentional-chain role expressed in THIS sentence.
+A commitment is a character's decision, choice, resolve, or intention, including one expressed
+through thought, emotion, speech, or indirect report.
+An execution is a purposeful act performed by a character.
+An attainment is an explicit statement that an intended act was carried out or its intended result
+was achieved. Do not treat mere stopping, ending, or a resulting condition as attainment unless the
+sentence presents the act or result as intended.
+A sentence may express more than one role. Choose exactly one value:
+`outside_chain`, `commitment`, `execution`, `attainment`, `commitment_execution`,
+`commitment_attainment`, `execution_attainment`, or `commitment_execution_attainment`.
+Use `outside_chain` only when THIS sentence expresses none of commitment, execution, or attainment.
+```
+
+### C. 리셋 규칙 (100% 코드, G4)
+```
+reset = current.D  OR  (current.A AND NOT previous.A)  OR  (previous.C AND current.A)
+```
+= ① 현재 문장에 결정이 있으면 리셋 ② 비실행 → 실행 진입 시 리셋 ③ 달성 뒤 재실행 시 리셋.
+첫 문장은 평가에서 제외. **`event_type` 은 리셋 규칙에서 완전히 제거**(유지하면 새 필드와 무관하게
+발화율이 다시 포화 — D-B21 에서 확인). 출력 자체는 호환용으로 남길 수 있으나 판정에 미사용.
+
+### D. 성공 기준 — dev-3 전체에 **1회만** 적용, **3/3 충족해야 채택**
+| # | 조건 | 기준 |
+|---|---|---|
+| ① 주 지표 | gold-boundary **lift 95% CI 하한** (**이야기 단위 cluster bootstrap**) | **≥ 1.10** |
+| ② 발화율 sanity | 평가 가능 문장 대비 | **0.025 ~ 0.150** |
+| ③ 안전장치 | 기존 종합 Score 대비 ΔScore | **≥ −0.010** |
+
+②의 범위 근거: gold 밀도 0.066 주변을 허용하되 **D-B21 의 희소화(0.059)와 동결의 포화(0.667)를
+양쪽 다 차단**한다. ⚠️ codex 명시 한계: **이야기가 3편뿐이라 cluster bootstrap CI 안정성이 낮다.**
+Score 계산법·threshold matching 은 변경하지 않는다.
+진단값(enum 분포·`outside_chain` 비율·복합값 비율)은 보고하되 **채택 기준을 사후 변경하는 데
+사용하지 않는다.**
+
+### E. 스모크 계획 (사용자 요청: "GPU 4장으로 1편 먼저")
+🔴 **pieman 을 쓰지 않는다** — 선택압 9회 누적. 대신 **Phase-1 앵커 코퍼스(PG 단편)에서 400~600문장
+1편**을 고른다(선택압 0, gold 불필요).
+🔴 **1편 스모크에서 gold 판별력·lift·ΔScore 를 판단하지 않는다** — 단일 이야기는 경계 수가 적고
+작품 효과가 커서 진행 근거가 못 된다.
+
+**진행 조건(전부 충족해야 dev-3 본검정 진입):**
+JSON/schema 성공률 100% · enum 외 값·자유서술 **0건** · 동일 입력 재실행 표본 불일치 **0건** ·
+`outside_chain` 비율 **10~90%** · 단일 enum 최대 점유율 **< 90%** · 리셋 발화율 **0.02~0.15** ·
+target-only 인간 감사 표본에서 명백한 정의 위반 **≤ 10%** · 복합값은 빈도 0이어도 중단하지 않되
+나온 사례가 정의와 맞는지 확인.
+
+### F. 실행 순서 (사용자 승인)
+1. 스모크 1편(PG) → E 조건 판정
+2. 통과 시 **dev-3 3편 본검정** → D 기준 3/3 판정
+3. 채택 시에만 **1만편 확대**(앵커 재생성). 인프라 = `phase0-annotation-guide.md` §9 canonical.
+
+### 중단 조건
+D 또는 E 중 하나라도 실패 시 **이 규칙 폐기**. **dev-3 결과를 보고 enum·프롬프트·전이표·임계값을
+조정해 같은 자료에서 재검정하지 않는다.** 다음 변경은 별도 가설 + 새 평가 자료가 있을 때만.
