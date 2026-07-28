@@ -74,62 +74,77 @@ def slot_states_and_pred(model, c: Corpus, idx: list[int], dev: str, bs: int, an
 
 
 def calibrate(model, c: Corpus, va: list[int], dev: str, bs: int) -> dict:
-    """phase1 val 에서 σ_k² 와 에피소드 onset 프로토타입을 추정한다 (dev-3 미사용).
+    """§4.7 A1 — amortized onset prior q_onset^(k) 를 phase1 val 에서 적합 (dev-3 미사용).
 
-    - σ_k² = continue 예측 잔차의 축별 분산 (식 2 diag covariance 를 축별 스칼라로 단순화;
-      `00-sem-paper.md` §5 "Welford online update 로 단순화" 방침과 정합).
-    - onset_k = **앵커가 경계라고 말한 전이 직후**의 슬롯 상태 평균 (§4.5 의 learnable
-      episode-onset distribution 을 데이터에서 직접 추정). 앵커 라벨만 쓰고 gold 는 안 쓴다.
+    A1 원문: *"learned from the **first sentences of every segment**"*. 앵커 코퍼스에는 gold
+    세그먼트가 없으므로 **앵커가 경계라 한 전이(count≥t\*) 직후 문장**을 세그먼트 첫 문장으로 쓴다.
+
+    §4.6 *"Auto-normalization via likelihood (not point error) — Predict a **distribution** per slot;
+    surprise = −log p"* 에 따라 **점 프로토타입이 아니라 분포**를 적합한다. SEM 식 2 의 diag
+    covariance 를 따라 **대각 공분산**:
+      continue : r = obs − f_k(prev)  ~  N(μ_cont,k, diag σ²_cont,k)
+      new      : obs                  ~  N(μ_onset,k, diag σ²_onset,k)
+
+    🔴 이전 구현(D-B18)의 버그: 우도비에서 정규화 상수를 "소거된다"며 버렸다. 그건 두 분포의
+    분산이 같을 때만 참이다. onset 분포는 넓고(에피소드 시작은 제각각) continue 는 좁으므로
+    `−(1/2)Σ_j log σ²_j` 항이 결정적이다(d=128 → 수십 단위). 그 항을 빼면 "중심점에 가깝다"가
+    공짜로 이겨 ll 이 상시 양수가 된다.
     """
     packs = slot_states_and_pred(model, c, va, dev, bs, anchor=True)
-    n_slots = model.n_slots
-    res_sq = [[] for _ in range(n_slots)]
-    onset_rows = [[] for _ in range(n_slots)]
+    n_slots, d = model.n_slots, model.slot_dim
+    res = [[] for _ in range(n_slots)]      # continue 잔차
+    ons = [[] for _ in range(n_slots)]      # 세그먼트 첫 문장의 슬롯 상태
     for i, (S, Sh) in zip(va, packs):
         R = c.resets[int(c.to[i]):int(c.to[i + 1])]
-        bnd = R.sum(1) >= T_STAR                      # 앵커가 경계라 한 전이
-        d = S[1:] - Sh                                # [T-1, n_slots, d] continue 잔차
+        bnd = R.sum(1) >= T_STAR
+        r = S[1:] - Sh                                   # [T-1, n_slots, d]
         for k in range(n_slots):
-            res_sq[k].append((d[:, k, :] ** 2).sum(-1))
+            res[k].append(r[:, k, :])
             if bnd.any():
-                onset_rows[k].append(S[1:][bnd, k, :])
-    sigma2 = np.array([max(float(np.concatenate(res_sq[k]).mean()), 1e-8)
-                       for k in range(n_slots)])
-    onset = np.stack([np.concatenate(onset_rows[k]).mean(0) if onset_rows[k]
-                      else np.zeros(model.slot_dim) for k in range(n_slots)])
-    return {"sigma2": sigma2, "onset": onset}
+                ons[k].append(S[1:][bnd, k, :])
+    eps = 1e-6
+    mu_c = np.stack([np.concatenate(res[k]).mean(0) for k in range(n_slots)])
+    v_c = np.stack([np.concatenate(res[k]).var(0) + eps for k in range(n_slots)])
+    mu_o = np.stack([np.concatenate(ons[k]).mean(0) if ons[k] else np.zeros(d)
+                     for k in range(n_slots)])
+    v_o = np.stack([np.concatenate(ons[k]).var(0) + eps if ons[k] else np.ones(d)
+                    for k in range(n_slots)])
+    return {"mu_cont": mu_c, "var_cont": v_c, "mu_onset": mu_o, "var_onset": v_o,
+            "logdet_cont": np.log(v_c).sum(1), "logdet_onset": np.log(v_o).sum(1)}
 
 
 def segment_doc(S: np.ndarray, Sh: np.ndarray, cal: dict, alpha: float, lmda: float,
-                beta: float) -> np.ndarray:
-    """전진 local MAP (식 8) — 전이마다 continue vs new 를 결정. 반환 = 경계 0/1 [T-1].
+                beta: float, use_normalizer: bool = True) -> np.ndarray:
+    """전진 local MAP (식 8) — 전이마다 continue vs new. 반환 = 경계 0/1 [T-1].
 
-    log-ratio = [log α − log(C_prev + λ)]            <- §4.4 sticky-CRP 사전 (비대칭 = 상쇄 불가)
-              + Σ_k [ logp(s_k | new) − logp(s_k | cont) ]   <- §4.5 슬롯별 우도비의 곱
-    boundary ⟺ log-ratio > 0.  (식 6: logp = −‖·‖²/(2σ_k²), 상수항은 비율에서 소거)
+    log-ratio = [log α − log(C_prev + λ)]              <- §4.4 sticky-CRP (비대칭 = 상쇄 불가)
+              + Σ_k [ log N(obs_k; μ_onset,k, Σ_onset,k) − log N(r_k; μ_cont,k, Σ_cont,k) ]
+
+    `use_normalizer=False` 는 D-B18 의 (깨진) 형태 재현용 ablation — 정규화 상수를 버린다.
     """
-    T1 = Sh.shape[0]
-    n_slots = S.shape[1]
-    s2 = cal["sigma2"]
+    T1, n_slots = Sh.shape[0], S.shape[1]
     counts = np.zeros(MAX_K, dtype=np.float64)
     cur = 0
     counts[cur] = 1.0
     bnd = np.zeros(T1, dtype=np.int8)
-    for t in range(T1):
-        obs = S[t + 1]                                     # [n_slots, d] 실제 관측
-        # 우도비 (식 5 분해 = 슬롯별 곱 → 로그합; ad-hoc 가중 없음)
+    for t_ in range(T1):
+        obs = S[t_ + 1]
         ll = 0.0
         for k in range(n_slots):
-            e_cont = float(((obs[k] - Sh[t, k]) ** 2).sum())
-            e_new = float(((obs[k] - cal["onset"][k]) ** 2).sum())
-            ll += (-e_new + e_cont) / (2.0 * s2[k])
-        # 사전 (식 1). counts 는 "에피소드가 이미 쓴 문장 수" 로 누적 → 길이 적응적.
+            dn = obs[k] - cal["mu_onset"][k]
+            dc = (obs[k] - Sh[t_, k]) - cal["mu_cont"][k]
+            q_new = -0.5 * float((dn * dn / cal["var_onset"][k]).sum())
+            q_con = -0.5 * float((dc * dc / cal["var_cont"][k]).sum())
+            if use_normalizer:   # 넓은 분포가 치러야 할 대가 (§4.6 auto-normalization)
+                q_new -= 0.5 * float(cal["logdet_onset"][k])
+                q_con -= 0.5 * float(cal["logdet_cont"][k])
+            ll += q_new - q_con
         prior = sticky_crp_unnormed(counts, cur, alpha, lmda, beta)
         n_visited = int(np.count_nonzero(counts))
         p_new = prior[n_visited] if n_visited < MAX_K else 1e-12
         log_ratio = np.log(max(p_new, 1e-12)) - np.log(max(prior[cur], 1e-12)) + ll
         if log_ratio > 0 and n_visited < MAX_K - 1:
-            bnd[t] = 1
+            bnd[t_] = 1
             cur = n_visited
             counts[cur] = 1.0
         else:
@@ -138,13 +153,13 @@ def segment_doc(S: np.ndarray, Sh: np.ndarray, cal: dict, alpha: float, lmda: fl
 
 
 def eval_dev3(model, dev3: Corpus, cal: dict, dev: str, alpha: float, lmda: float,
-              beta: float) -> dict:
+              beta: float, use_normalizer: bool = True) -> dict:
     idx = list(range(dev3.n_docs))
     packs = slot_states_and_pred(model, dev3, idx, dev, 4, anchor=False)
     ys, ps, per_doc = [], [], {}
     for i, (S, Sh) in zip(idx, packs):
         g = dev3.gold[int(dev3.to[i]):int(dev3.to[i + 1])].astype(np.int8)
-        b = segment_doc(S, Sh, cal, alpha, lmda, beta)
+        b = segment_doc(S, Sh, cal, alpha, lmda, beta, use_normalizer)
         y = np.concatenate([g, [0]]).tolist()
         p = np.concatenate([b, [0]]).tolist()
         ys.append(y)
@@ -189,11 +204,11 @@ def main() -> None:
         va_all, min(args.cal_docs, len(va_all)), replace=False).tolist()
     print(f"[cal] phase1 val {len(va)}편에서 σ_k²·onset 추정 (dev-3 미사용)", flush=True)
     cal = calibrate(model, c, va, dev, args.batch)
-    print(f"[cal] σ_k² = {np.round(cal['sigma2'], 5).tolist()}", flush=True)
+    print(f"[cal] logdet cont = {np.round(cal['logdet_cont'],1).tolist()}\n      logdet onset = {np.round(cal['logdet_onset'],1).tolist()}", flush=True)
 
     rows = []
     for lm in [float(x) for x in args.lmda_sweep.split(",")]:
-        r = eval_dev3(model, dev3, cal, dev, args.alpha, lm, args.crp_beta)
+        r = eval_dev3(model, dev3, cal, dev, args.alpha, lm, args.crp_beta, True)
         rows.append((lm, r))
         print(f"  λ={lm:>6.1f}  Score {r['pooled_score']:.4f}  예측경계 {r['n_pred_total']:>4d}",
               flush=True)
@@ -224,7 +239,7 @@ def main() -> None:
     out = EXP / f"SWITCH_{args.model}{args.ns}_seed{args.seed}.md"
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
     (EXP / f"switch_{args.model}{args.ns}_seed{args.seed}.json").write_text(
-        json.dumps({"lmda_sweep": [(lm, r) for lm, r in rows], "sigma2": cal["sigma2"].tolist(),
+        json.dumps({"lmda_sweep": [(lm, r) for lm, r in rows], "logdet_cont": cal["logdet_cont"].tolist(), "logdet_onset": cal["logdet_onset"].tolist(),
                     "inert": bool(inert)}, indent=2, default=float))
     print("\n".join(L[4:]))
     print(f"\n-> {out}")
