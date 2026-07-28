@@ -35,6 +35,9 @@ VERSION = "p0s5-eism-v2"
 # --prompt-version tag. v3 = D-B12 redesign(ALL fixes). v3.1 = D-B14 동결(H+E만, 2026-07-25).
 VERSIONS = {"v2": "p0s5-eism-v2", "v3": "p0s5-eism-v3", "v3.1": "p0s5-eism-v3.1"}
 AXES = ("protagonist", "space", "time", "causality", "intentionality")
+# D-B22 실험 축 — 동결 5축과 완전 분리. AXES 에 넣지 않으므로 reset_matrix·prompt_sha256 불변.
+# `--axis chainrole` 로만 추출되고 `chainrole_states.jsonl` 에만 쓰인다.
+EXPERIMENT_AXES = ("chainrole",)
 
 # --- fixed absolute enums (story-independent) ---
 PERSPECTIVE = ["first", "second", "third", "none"]
@@ -45,6 +48,11 @@ EVENT_TYPE = ["dialogue", "physical_action", "movement_or_travel",
               "conflict_or_violence", "work_or_creation", "state_description", "other"]
 ASPECT = ["inceptive", "ongoing", "completive"]
 CAUSAL_MARKER = ["absent", "cause", "consequence"]  # additive experiment field (§3.4)
+# D-B22: 의도 사슬 역할. D(commitment)/A(execution)/C(attainment) 3비트의 8조합.
+# `unclear` 없음(도피 범주 금지) · `outside_chain` 유지(음성 범주).
+CHAIN_ROLE = ["outside_chain", "commitment", "execution", "attainment",
+              "commitment_execution", "commitment_attainment", "execution_attainment",
+              "commitment_execution_attainment"]
 
 JACCARD_RESET = 0.5  # protagonist active-set reset threshold (frozen, ablation column)
 
@@ -293,6 +301,8 @@ def stage2_schema(axis: str, lists: dict) -> dict:
         props["causal_marker"] = {"type": "string", "enum": CAUSAL_MARKER}  # experiment (§3.4)
     elif axis == "intentionality":
         props["active_goal"] = {"type": "string", "enum": goals}
+    elif axis == "chainrole":                                   # D-B22 (실험 축)
+        props["intentional_chain_role"] = {"type": "string", "enum": CHAIN_ROLE}
     item = {"type": "object", "additionalProperties": False,
             "properties": props, "required": list(props)}
     return {"type": "object", "additionalProperties": False,
@@ -393,6 +403,22 @@ def stage2_prompt(axis: str, lists: dict, items: list[tuple[int, str]], pv: str 
         field = build_time_field(fx)
     elif axis == "intentionality":
         field = build_intent_field(goals, fx)
+    elif axis == "chainrole":
+        # D-B22 (실험 축) — codex 확정 문안. G1/G2/G3 준수: 이전상태·변화·경계·novelty 미질의,
+        # target 문장 단독, 닫힌 목록. **Stage-1 goals 를 참조하지 않는다**(intentionality 중복 회피).
+        field = (
+            "intentional_chain_role: Classify the intentional-chain role expressed in THIS sentence.\n"
+            "A commitment is a character's decision, choice, resolve, or intention, including one "
+            "expressed through thought, emotion, speech, or indirect report.\n"
+            "An execution is a purposeful act performed by a character.\n"
+            "An attainment is an explicit statement that an intended act was carried out or its "
+            "intended result was achieved. Do not treat mere stopping, ending, or a resulting "
+            "condition as attainment unless the sentence presents the act or result as intended.\n"
+            "A sentence may express more than one role. Choose exactly one value: outside_chain, "
+            "commitment, execution, attainment, commitment_execution, commitment_attainment, "
+            "execution_attainment, or commitment_execution_attainment.\n"
+            "Use outside_chain only when THIS sentence expresses none of commitment, execution, "
+            "or attainment.")
     else:
         field = field[axis]
     payload = "\n\n".join(f"ITEM {i}\nTARGET: {s}" for i, s in items)
@@ -435,6 +461,7 @@ AXIS_FIELDS = {
     "time": ["tense", "temporal_shift_marker"],
     "causality": ["event_type", "aspect", "causal_marker"],
     "intentionality": ["active_goal"],
+    "chainrole": ["intentional_chain_role"],                    # D-B22 (실험 축)
 }
 
 
@@ -463,6 +490,8 @@ def valid(axis: str, x: dict, lists: dict) -> dict | None:
         elif f == "causal_marker" and v not in CAUSAL_MARKER:
             return None
         elif f == "active_goal" and v not in set(lists["goals"]) | {"none"}:
+            return None
+        elif f == "intentional_chain_role" and v not in CHAIN_ROLE:   # D-B22
             return None
         if f not in vals:
             vals[f] = v
@@ -519,6 +548,24 @@ def reset_time(a: dict, b: dict) -> int:
     return int(b["temporal_shift_marker"] in ("sequence", "jump", "simultaneity"))
 
 
+def _dac(role: str) -> tuple[bool, bool, bool]:
+    """intentional_chain_role -> (D=commitment, A=execution, C=attainment) 비트."""
+    return ("commitment" in role, "execution" in role, "attainment" in role)
+
+
+def reset_chainrole(a: dict, b: dict) -> int:
+    """D-B22 사전등록 규칙 (100% 코드, G4).
+
+        reset = current.D OR (current.A AND NOT previous.A) OR (previous.C AND current.A)
+
+    ① 현재 문장에 결정이 있으면 리셋 ② 비실행 -> 실행 진입 ③ 달성 뒤 재실행.
+    `event_type` 은 이 규칙에서 완전히 배제한다(D-B21 에서 포화 원인으로 확인).
+    """
+    _, pa, pc = _dac(a["intentional_chain_role"])
+    cd, ca, _ = _dac(b["intentional_chain_role"])
+    return int(cd or (ca and not pa) or (pc and ca))
+
+
 def reset_causality(a: dict, b: dict) -> int:
     return int(a["event_type"] != b["event_type"] or b["aspect"] == "inceptive")
 
@@ -545,7 +592,7 @@ def main() -> None:
     # 180 은 개체가 많은 문서의 Stage-1 생성이 못 끝내고 APITimeout 으로 죽는다
     # (2026-07-27 phase1: 4편 소실). 상한일 뿐이라 라벨 내용에는 영향 없음. 기본값은 동결 유지.
     ap.add_argument("--timeout", type=float, default=180, help="HTTP 요청 타임아웃(초)")
-    ap.add_argument("--axis", choices=AXES, action="append")
+    ap.add_argument("--axis", choices=AXES + EXPERIMENT_AXES, action="append")
     ap.add_argument("--no-reasoning", action="store_true",
                     help="disable model reasoning (extra_body={'reasoning':{'enabled':False}}) — "
                          "D-B11 determinism experiment; NOT the frozen config (default keeps reasoning ON)")
@@ -617,7 +664,9 @@ def main() -> None:
             sp = ddir / f"{axis}_states.jsonl"
             done = {x["item_id"]: x for x in read(sp)}
             ids = list(range(len(texts)))
-            seed = args.seed + AXES.index(axis)
+            # 실험 축은 동결 축 뒤 인덱스를 받아 seed 가 겹치지 않는다(동결 5축 seed 불변).
+            all_axes = AXES + EXPERIMENT_AXES
+            seed = args.seed + all_axes.index(axis)
             random.Random(seed).shuffle(ids)
             while len(done) < len(texts):
                 todo = [i for i in ids if i not in done][:args.batch]
