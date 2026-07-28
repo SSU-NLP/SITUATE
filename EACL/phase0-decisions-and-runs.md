@@ -2249,3 +2249,45 @@ continue 분포가 좁아져 **과분절이 281→39 로 해소**, Score 0.4222 
 **dev-3 표준 평가 (slot-native, seed 0):** [주] M5 0.3987 / M4 0.3930 (Δ +0.0057) ·
 [SEM식] 0.3110 / 0.2757 (Δ +0.0354) · [보조b] 0.4044 / 0.3701. M5−M4 는 여전히 노이즈 폭 안이며
 **pieman 의존 구조도 그대로**다 — D-B17 판정 불변.
+
+### D-B18 후속③ — §4.2 슬롯별 이종 분포족: **S/N 개선, Score 하락** (2026-07-28)
+
+D-B18 의 3순위 항목 실행. 5축을 **같은 형태의 대각 가우시안**으로 다루던 것을 §4.2 원문대로
+**축별 성분 수가 다른 대각 MoG** 로 교체(재학습 불필요 — 캘리브레이션 단계만).
+성분 수 = protagonist 5 · **space 3 · time 3**(원문 *"small MoG … 2–3 components suffice"*) ·
+**causality 8 · intentionality 8**(원문 *"larger MoG … must be **multimodal** because within-episode
+causal content jumps discretely"*). 러너 `switch_scorer.py --density mog`.
+
+**⚠️ 도달 불가 2건(정직 기록):** ① protagonist 의 **point process**(개체별 Bernoulli persist +
+CRP 신규개체율)는 **활성 개체 집합**이 타깃인데 본 데이터셋은 전역 enum 3종만 저장해
+`characters_present` 가 없다 → MoG 대체. ② causality/goal 의 **ψₑ 파라미터화**(혼합 가중·평균을
+스키마가 결정)는 §4.3 미구현 → 무조건부 MoG.
+
+| 지표 | diag (단일 가우시안) | **MoG (§4.2)** |
+|---|---|---|
+| 전체 ll 표준편차 | 635.8 | **290.8** |
+| 경계−비경계 차 | +228.5 | +126.2 |
+| **S/N (차/σ)** | +0.359 | **+0.434** |
+| dev-3 Score | **0.4222** | 0.3324 |
+| 예측 경계 (gold 66) | 39 | **22 (과소예측)** |
+| λ 게이트 | 🔴 INERT | 🔴 INERT |
+
+**축별 S/N (diag → MoG):** protagonist +0.736→+0.458 · space +0.234→**+0.323** ·
+time +0.362→+0.123 · causality +0.225→+0.175 · intentionality +0.211→**+0.354**.
+**🔑 causality 의 σ 가 157 → 33 으로 5배 축소** — 설계의 *"causality 는 multimodal 이어야 한다"* 가
+실측으로 확인됐다. 8성분 혼합이 에피소드 내 인과 점프를 "정상"으로 흡수해 **인과 노이즈가 다른 축
+신호를 삼키는 문제**(D-M2 §3 의 monkey 사례 근거)가 완화된다.
+
+**판정: §4.2 는 겨냥한 지표(S/N)에서 이겼고 Score 에서 졌다.** Score 하락은 판별력 저하가 아니라
+**작동점 어긋남**이다 — 우도 스케일이 절반으로 줄며 결정이 continue 쪽으로 치우쳐 과소예측(22 vs
+gold 66)이 됐다. 작동점을 dev-3 에서 다시 맞추는 것은 **금지**(selection-on-test)이므로 하지 않는다.
+
+**λ 게이트는 여전히 INERT** — σ 를 636→291 로 줄였으나 사전 폭 1.7 과는 아직 **172배** 차이다.
+sticky-CRP 가 결정에 참여하려면 우도 스케일을 O(10) 수준까지 낮춰야 하고, 그것은 슬롯 차원
+d=128 에 대한 로그밀도 합이라는 구조에서 온다. **설계 §4.2 의 분포족들(개체 집합 위 point process,
+저차원 place/time 범주)은 원래 *컴팩트한* 타깃을 전제**하는데 우리 타깃은 128차원 연속 잠재다 —
+이 **차원 불일치**가 다음 단계의 핵심 과제로 남는다.
+
+**다음 후보:** ⬜ §4.3 스키마 조건부 dynamics(ψₑ) — causality/goal MoG 의 ψₑ 파라미터화를 열고
+동시에 §4.5 schema reuse 항을 가능하게 함 · ⬜ 슬롯 타깃의 저차원화/이산화(차원 불일치 해소) ·
+⬜ §4.8 particle smoothing.

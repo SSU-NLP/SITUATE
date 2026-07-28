@@ -57,6 +57,18 @@ from train_anchor_m4m5 import EXP, T_STAR, Corpus, batches, make_batch  # noqa: 
 
 MAX_K = 256  # 문서당 에피소드 상한 (비모수지만 배열 상한은 필요)
 
+# §4.2 슬롯별 이종 분포족 — 축마다 성분 수를 다르게 준다 (원문):
+#   "Place / Time — small MoG (or categorical). Low-variance; **2–3 components suffice**."
+#   "Causality / Goal — **larger MoG** or VQ-categorical. Must be **multimodal** because
+#    within-episode causal content jumps discretely."
+#   "Protagonist — **point process** (not Gaussian) ... per-tracked-entity Bernoulli(persist)
+#    + CRP-style novel-entity rate λ."
+# ⚠️ 도달 불가 2건(정직 기록):
+#   · protagonist point process = **활성 개체 집합**이 타깃인데 본 데이터셋은 전역 enum 3종만
+#     저장해 `characters_present` 가 없다 → MoG 로 대체.
+#   · causality/goal 의 ψₑ 파라미터화(혼합 가중·평균을 스키마가 결정) = §4.3 미구현 → 무조건부 MoG.
+N_COMPONENTS = {0: 5, 1: 3, 2: 3, 3: 8, 4: 8}   # protagonist/space/time/causality/intentionality
+
 
 @torch.no_grad()
 def slot_states_and_pred(model, c: Corpus, idx: list[int], dev: str, bs: int, anchor: bool):
@@ -73,7 +85,8 @@ def slot_states_and_pred(model, c: Corpus, idx: list[int], dev: str, bs: int, an
     return [out[i] for i in idx]
 
 
-def calibrate(model, c: Corpus, va: list[int], dev: str, bs: int) -> dict:
+def calibrate(model, c: Corpus, va: list[int], dev: str, bs: int,
+              density: str = "diag", fit_cap: int = 20000, seed: int = 0) -> dict:
     """§4.7 A1 — amortized onset prior q_onset^(k) 를 phase1 val 에서 적합 (dev-3 미사용).
 
     A1 원문: *"learned from the **first sentences of every segment**"*. 앵커 코퍼스에는 gold
@@ -109,40 +122,72 @@ def calibrate(model, c: Corpus, va: list[int], dev: str, bs: int) -> dict:
                      for k in range(n_slots)])
     v_o = np.stack([np.concatenate(ons[k]).var(0) + eps if ons[k] else np.ones(d)
                     for k in range(n_slots)])
-    return {"mu_cont": mu_c, "var_cont": v_c, "mu_onset": mu_o, "var_onset": v_o,
-            "logdet_cont": np.log(v_c).sum(1), "logdet_onset": np.log(v_o).sum(1)}
+    cal = {"kind": density,
+           "mu_cont": mu_c, "var_cont": v_c, "mu_onset": mu_o, "var_onset": v_o,
+           "logdet_cont": np.log(v_c).sum(1), "logdet_onset": np.log(v_o).sum(1)}
+    if density == "mog":
+        # §4.2 — 축별 성분 수가 다른 대각 MoG. 재학습 없이 캘리브레이션 단계에서만 적합.
+        from sklearn.mixture import GaussianMixture
+        rs = np.random.default_rng(seed)
+
+        def _fit(X, n):
+            if len(X) > fit_cap:
+                X = X[rs.choice(len(X), fit_cap, replace=False)]
+            n = min(n, max(1, len(X) // 50))
+            g = GaussianMixture(n_components=n, covariance_type="diag",
+                                reg_covar=1e-6, max_iter=200, random_state=seed)
+            g.fit(X)
+            return g
+        cal["gm_cont"] = [_fit(np.concatenate(res[k]), N_COMPONENTS[k]) for k in range(n_slots)]
+        cal["gm_onset"] = [_fit(np.concatenate(ons[k]), N_COMPONENTS[k]) if ons[k] else None
+                           for k in range(n_slots)]
+        cal["n_comp"] = [g.n_components for g in cal["gm_cont"]]
+    return cal
+
+
+def slot_logdensities(S: np.ndarray, Sh: np.ndarray, cal: dict,
+                      use_normalizer: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    """전이×슬롯 로그밀도 (lp_new, lp_cont), 각 [T-1, n_slots]. 순차 루프 밖에서 벡터화."""
+    T1, n_slots = Sh.shape[0], S.shape[1]
+    lp_new = np.zeros((T1, n_slots))
+    lp_con = np.zeros((T1, n_slots))
+    for k in range(n_slots):
+        obs = S[1:, k]                      # [T-1, d]
+        res = obs - Sh[:, k]                # continue 잔차
+        if cal["kind"] == "mog":
+            lp_new[:, k] = (cal["gm_onset"][k].score_samples(obs)
+                            if cal["gm_onset"][k] is not None else -1e9)
+            lp_con[:, k] = cal["gm_cont"][k].score_samples(res)
+        else:
+            dn = obs - cal["mu_onset"][k]
+            dc = res - cal["mu_cont"][k]
+            lp_new[:, k] = -0.5 * (dn * dn / cal["var_onset"][k]).sum(1)
+            lp_con[:, k] = -0.5 * (dc * dc / cal["var_cont"][k]).sum(1)
+            if use_normalizer:
+                lp_new[:, k] -= 0.5 * cal["logdet_onset"][k]
+                lp_con[:, k] -= 0.5 * cal["logdet_cont"][k]
+    return lp_new, lp_con
 
 
 def segment_doc(S: np.ndarray, Sh: np.ndarray, cal: dict, alpha: float, lmda: float,
                 beta: float, use_normalizer: bool = True) -> np.ndarray:
     """전진 local MAP (식 8) — 전이마다 continue vs new. 반환 = 경계 0/1 [T-1].
 
-    log-ratio = [log α − log(C_prev + λ)]              <- §4.4 sticky-CRP (비대칭 = 상쇄 불가)
-              + Σ_k [ log N(obs_k; μ_onset,k, Σ_onset,k) − log N(r_k; μ_cont,k, Σ_cont,k) ]
-
-    `use_normalizer=False` 는 D-B18 의 (깨진) 형태 재현용 ablation — 정규화 상수를 버린다.
+    log-ratio = [log α − log(C_prev + λ)]        <- §4.4 sticky-CRP (비대칭 = 상쇄 불가)
+              + Σ_k [ log p_new,k − log p_cont,k ]   <- §4.5 슬롯별 우도비의 곱 (ad-hoc 가중 없음)
     """
-    T1, n_slots = Sh.shape[0], S.shape[1]
+    lp_new, lp_con = slot_logdensities(S, Sh, cal, use_normalizer)
+    ll_all = (lp_new - lp_con).sum(1)
+    T1 = Sh.shape[0]
     counts = np.zeros(MAX_K, dtype=np.float64)
     cur = 0
     counts[cur] = 1.0
     bnd = np.zeros(T1, dtype=np.int8)
     for t_ in range(T1):
-        obs = S[t_ + 1]
-        ll = 0.0
-        for k in range(n_slots):
-            dn = obs[k] - cal["mu_onset"][k]
-            dc = (obs[k] - Sh[t_, k]) - cal["mu_cont"][k]
-            q_new = -0.5 * float((dn * dn / cal["var_onset"][k]).sum())
-            q_con = -0.5 * float((dc * dc / cal["var_cont"][k]).sum())
-            if use_normalizer:   # 넓은 분포가 치러야 할 대가 (§4.6 auto-normalization)
-                q_new -= 0.5 * float(cal["logdet_onset"][k])
-                q_con -= 0.5 * float(cal["logdet_cont"][k])
-            ll += q_new - q_con
         prior = sticky_crp_unnormed(counts, cur, alpha, lmda, beta)
         n_visited = int(np.count_nonzero(counts))
         p_new = prior[n_visited] if n_visited < MAX_K else 1e-12
-        log_ratio = np.log(max(p_new, 1e-12)) - np.log(max(prior[cur], 1e-12)) + ll
+        log_ratio = np.log(max(p_new, 1e-12)) - np.log(max(prior[cur], 1e-12)) + ll_all[t_]
         if log_ratio > 0 and n_visited < MAX_K - 1:
             bnd[t_] = 1
             cur = n_visited
@@ -183,6 +228,8 @@ def main() -> None:
     ap.add_argument("--alpha", type=float, default=1.0)   # 00-sem-paper §5: α/λ 반전
     ap.add_argument("--lmda", type=float, default=10.0)
     ap.add_argument("--crp-beta", type=float, default=1.0, help="1.0 = SEM 식1 그대로")
+    ap.add_argument("--density", default="diag", choices=["diag", "mog"],
+                    help="diag = 단일 대각 가우시안 · mog = §4.2 축별 이종 MoG")
     ap.add_argument("--lmda-sweep", default="0,1,3,10,30,100",
                     help="필수 산출 — 사전이 inert 하지 않은지 확인 (2026-05-22 재발 방지)")
     args = ap.parse_args()
@@ -204,7 +251,7 @@ def main() -> None:
     va = np.random.default_rng(args.seed).choice(
         va_all, min(args.cal_docs, len(va_all)), replace=False).tolist()
     print(f"[cal] phase1 val {len(va)}편에서 σ_k²·onset 추정 (dev-3 미사용)", flush=True)
-    cal = calibrate(model, c, va, dev, args.batch)
+    cal = calibrate(model, c, va, dev, args.batch, args.density, seed=args.seed)
     print(f"[cal] logdet cont = {np.round(cal['logdet_cont'],1).tolist()}\n      logdet onset = {np.round(cal['logdet_onset'],1).tolist()}", flush=True)
 
     rows = []
@@ -237,9 +284,10 @@ def main() -> None:
           "- §4.7 particle smoothing — 전진 local MAP(식 8)만.",
           "- §4.2 슬롯별 이종 분포족 — 전 슬롯 등방 가우시안(식 6). σ_k² 만 축별.",
           "\n⚠️ 앵커 k=1 · S_self 0.659(상한) · 탐색적 — 성능 주장 아님(D-B16)."]
-    out = EXP / f"SWITCH_{args.model}{args.ns}_seed{args.seed}.md"
+    sfx = "" if args.density == "diag" else f"_{args.density}"
+    out = EXP / f"SWITCH_{args.model}{args.ns}{sfx}_seed{args.seed}.md"
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
-    (EXP / f"switch_{args.model}{args.ns}_seed{args.seed}.json").write_text(
+    (EXP / f"switch_{args.model}{args.ns}{sfx}_seed{args.seed}.json").write_text(
         json.dumps({"lmda_sweep": [(lm, r) for lm, r in rows], "logdet_cont": cal["logdet_cont"].tolist(), "logdet_onset": cal["logdet_onset"].tolist(),
                     "inert": bool(inert)}, indent=2, default=float))
     print("\n".join(L[4:]))
