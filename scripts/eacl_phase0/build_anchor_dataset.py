@@ -143,13 +143,16 @@ def main() -> None:
     ap.add_argument("--corpus", choices=["phase1", "dev3", "dts"], required=True)
     ap.add_argument("--dts-set", default="tiage",
                     choices=["tiage", "dialseg711", "superseg", "ami"])
+    ap.add_argument("--dts-full", action="store_true",
+                    help="SuperDialseg 공식 test 전체 사용(dts_full_*). 미지정 시 S5 샘플(부분집합).")
     ap.add_argument("--batch", type=int, default=512)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--limit-docs", type=int, default=0, help="스모크용: 앞 N개 문서만")
     ap.add_argument("--tag", default="", help="산출 파일명 접미사(스모크와 본 산출 분리)")
     args = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
-    split = (args.corpus if args.corpus != "dts" else f"dts_{args.dts_set}") \
+    split = (args.corpus if args.corpus != "dts"
+             else (f"dts_full_{args.dts_set}" if args.dts_full else f"dts_{args.dts_set}")) \
             + (f"_{args.tag}" if args.tag else "")
 
     if args.corpus == "phase1":
@@ -163,8 +166,10 @@ def main() -> None:
             sents += se
             golds += go
     else:   # dts — 대화 벤치마크(여러 대화가 한 파일). gold 는 채점에만.
-        doc_ids, sents, golds = collect_docs(
-            REPO / f"outputs/eacl_phase0/dts_{args.dts_set}_master.jsonl")
+        # --dts-full 이면 SuperDialseg **공식 test 전체**(dts_full_*), 아니면 S5 추출용 샘플.
+        # ⚠️ 샘플은 대화당 15 전이로 절단된 부분집합이다(D-B24) — 공식 수치와 비교 금지.
+        stem = f"dts_full_{args.dts_set}" if args.dts_full else f"dts_{args.dts_set}"
+        doc_ids, sents, golds = collect_docs(REPO / f"outputs/eacl_phase0/{stem}_master.jsonl")
     if args.limit_docs:
         doc_ids, sents = doc_ids[:args.limit_docs], sents[:args.limit_docs]
         if args.corpus == "dev3":
