@@ -1,0 +1,240 @@
+# dev-3 space 실패 전수 census (v2 vs 일반-A)
+
+> 3편 1008문장 전량. OVER=위치부여+무대근거없음(H대상) · UNDER=unspecified+무대단서(A/Stage-2).
+> 각 케이스 v2→Agen + 목록멤버십. 일반-A가 고쳤나 전수.
+
+## 요약 (전수)
+
+- **OVER(과잉귀속) 후보 총 42건** → 일반-A가 고침 **7건** (목록제외 2 / Stage-2 5). 미해결 35건=H 필요.
+- **UNDER(누락) 후보 총 178건** → 일반-A가 고침 **18건** (목록추가=A효과 9 / 목록엔있었음=Stage-2 9). 미해결 160건.
+
+## 판정 근거
+
+- **일반-A(목록)가 실제로 고친 건**: under 중 목록추가 9건 + over 중 목록제외 2건.
+- **목록으론 못 고치는 것(Stage-2/H)**: over 미해결 35건 + under 미해결 160건.
+
+## OVER 전량 (v2위치→Agen, agL=Agen목록有)
+
+- `pieman#17` ❌미해결(H): v2=`newsroom`→ag=`newsroom` (agL有=True)  “And I, and I find the editor, Jim Dwyer, who's a senior.”
+- `pieman#26` ❌미해결(H): v2=`newsroom`→ag=`newsroom` (agL有=True)  “So I'm banging out my story.”
+- `pieman#44` ❌미해결(H): v2=`newsroom`→ag=`newsroom` (agL有=True)  “So I finish my story and I hand it to Dwyer.”
+- `pieman#59` ❌미해결(H): v2=`campus_center`→ag=`campus_center` (agL有=True)  “Sheila was the kind of student that Dean McGowan wanted more of.”
+- `pieman#72` ❌미해결(H): v2=`campus_center`→ag=`campus_center` (agL有=True)  “People started dressing like him and and quoting him in class.”
+- `pieman#95` ❌미해결(H): v2=`bar`→ag=`bar` (agL有=True)  “Now buy me a beer and tell me all about it.”
+- `tunnel#32` ❌미해결(H): v2=`bus`→ag=`bus` (agL有=True)  “If you'll excuse me, this is my stop.”
+- `tunnel#54` ❌미해결(H): v2=`office`→ag=`accounting_department` (agL有=True)  “He has to sign the quarterly statement.”
+- `tunnel#67` ❌미해결(H): v2=`bedroom`→ag=`home` (agL有=False)  “He was still brooding as he and Mary got ready for bed.”
+- `tunnel#72` ❌미해결(H): v2=`bedroom`→ag=`home` (agL有=False)  “Well, I guess I'll get a good night's sleep.”
+- `tunnel#83` ✅고침: v2=`bedroom`→ag=`unspecified` (agL有=False)  “I seem to be having a lot of nightmares lately.”
+- `tunnel#104` ❌미해결(H): v2=`bus`→ag=`bus` (agL有=True)  “Guy Burckhardt got up, dressed, ate breakfast, and took the usual bus to work.”
+- `tunnel#116` ❌미해결(H): v2=`bus`→ag=`bus` (agL有=True)  “This is my stop, will you excuse me, please?”
+- `tunnel#168` ❌미해결(H): v2=`bus`→ag=`bus` (agL有=True)  “Listen, tomorrow morning, when I get off the bus, you get off with me.”
+- `tunnel#241` ❌미해결(H): v2=`kitchen`→ag=`kitchen` (agL有=True)  “Well, your dinner will be ready.”
+- `tunnel#244` ❌미해결(H): v2=`bedroom`→ag=`home` (agL有=False)  “The following morning, Guy Burckhardt woke up screaming.”
+- `tunnel#267` ❌미해결(H): v2=`bus`→ag=`bus` (agL有=True)  “I don't want to miss my bus.”
+- `tunnel#350` ❌미해결(H): v2=`office`→ag=`office` (agL有=True)  “Well, a tremendous panel with dozens of tele screens, and in front of each, a servo robot.”
+- `tunnel#458` ✅고침: v2=`bedroom`→ag=`unspecified` (agL有=False)  “That is why you wake up screaming each morning.”
+- `tunnel#503` ❌미해결(H): v2=`bedroom`→ag=`home` (agL有=False)  “It was the morning of June fifteenth and Guy Burckhardt woke up out of a dream screaming.”
+- `monkey#175` ✅고침: v2=`federal_court`→ag=`unspecified` (agL有=True)  “I've read the complaint.”
+- `monkey#199` ✅고침: v2=`federal_court`→ag=`unspecified` (agL有=True)  “And our argument, very simply, is that that, that should apply equally to him, even though he s”
+- `monkey#214` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “I was advised by talking to these attorneys that I really need, I did need to follow this throu”
+- `monkey#230` ✅고침: v2=`federal_court`→ag=`unspecified` (agL有=True)  “So, I thought: Wow, I would be perfect for this case.”
+- `monkey#247` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “He answered Naruto's complaint with a motion to dismiss the case.”
+- `monkey#257` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “Most of his case was an intellectual property argument that Naruto was the legal owner of the c”
+- `monkey#261` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “Calling civil matter fifteen dash four, three, two, four Naruto versus David John Slater et al.”
+- `monkey#265` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “The judge asked Schwarz if he has an example of an animal ever being granted a copyright.”
+- `monkey#293` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “PETA lost that case.”
+- `monkey#311` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “The judge decided the orangutan had basic rights as a nonhuman person, including the right to f”
+- `monkey#335` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “Good morning your Honors.”
+- `monkey#339` ✅고침: v2=`federal_court`→ag=`unspecified` (agL有=True)  “These judges are not messing around.”
+- `monkey#342` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “Your Honor.”
+- `monkey#347` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “The pleading standard for article three.”
+- `monkey#348` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “And then a few minutes later, Judge Randy Smith interrupts Schwarz to grill him about injury.”
+- `monkey#361` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “I mean if you give me a case that says copyright infringement itself is injury, I'll believe yo”
+- `monkey#368` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “After that his oral arguments can pretty much be summed up as: You should throw this case out.”
+- `monkey#369` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “And can you please make PETA pay my legal fees?”
+- `monkey#371` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “She's the codefendant's attorney.”
+- `monkey#373` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “So Angela Dunning gets up to deliver her defense, which is also pretty straightforward.”
+- `monkey#381` ✅고침: v2=`federal_court`→ag=`unspecified` (agL有=True)  “Naruto didn't make it to the hearing either.”
+- `monkey#392` ❌미해결(H): v2=`federal_court`→ag=`federal_court` (agL有=True)  “David will have to sue them to get it taken down, which he says he plans to do.”
+
+## UNDER 전량 (v2=unspec, 무대단서有 → Agen)
+
+- `pieman#4` ❌미해결: ag=`unspecified`  “And I go up to him and I say: Dean McGowan, is it true that Fordham University plans to raise t”
+- `pieman#13` ❌미해결: ag=`unspecified`  “And then I say: Dean McGowan, would you care to comment on this latest attack?”
+- `pieman#30` ❌미해결: ag=`unspecified`  “And they recommend against crossing that line.”
+- `pieman#31` ❌미해결: ag=`unspecified`  “But I had just seen the line crossed between a high powered dean and assault with a pastry.”
+- `pieman#48` ❌미해결: ag=`unspecified`  “And that's how the first line got crossed.”
+- `pieman#60` ❌미해결: ag=`unspecified`  “Although rumor had it that he got plenty of her in his office on his desk.”
+- `pieman#62` ❌미해결: ag=`unspecified`  “Please do not spread it outside this room.”
+- `pieman#70` ❌미해결: ag=`unspecified`  “Or at least, that's what it said in my story in the newspaper the next day, which ran with a ph”
+- `pieman#75` ❌미해결: ag=`unspecified`  “And I saw, I came in I saw, in the corner, Angela from my Brit Lit class drinking with some fri”
+- `pieman#78` ❌미해결: ag=`unspecified`  “And with such nuance that there was a question about whether she knew I existed.”
+- `pieman#79` ❌미해결: ag=`unspecified`  “So I I saw her there and made a mental note to do nothing about it.”
+- `pieman#81` ❌미해결: ag=`unspecified`  “And I felt a tap on my shoulder.”
+- `pieman#86` ❌미해결: ag=`unspecified`  “And I knew, by the way she said it, I knew that if I said yes, she would have sex with me.”
+- `pieman#89` ❌미해결: ag=`unspecified`  “But she had asked me a straightforward question that came with a straightforward answer.”
+- `pieman#92` ❌미해결: ag=`unspecified`  “So I looked at her.”
+- `tunnel#0` ❌미해결: ag=`unspecified`  “Tonight, a story by Frederik Pohl: Tunnel Under the World.”
+- `tunnel#2` ❌미해결: ag=`unspecified`  “It was more real than any dream he had ever had in his life.”
+- `tunnel#16` ❌미해결: ag=`unspecified`  “I dreamed there was a big explosion and then something sort of hit me on the head.”
+- `tunnel#17` ❌미해결: ag=`unspecified`  “Holy smokes, maybe, maybe there really was some sort of explosion that started this dreaming.”
+- `tunnel#20` ❌미해결: ag=`unspecified`  “There wasn't.”
+- `tunnel#21` ❌미해결: ag=`unspecified`  “If anything, the town looked better than ever.”
+- `tunnel#35` ✅고침: ag=`elevator`  “It wasn't until he was almost at his floor that he realized the speaker was not playing the usu”
+- `tunnel#36` ❌미해결: ag=`unspecified`  “Britons, are you happy with your present home freezer?”
+- `tunnel#41` ✅고침: ag=`home`  “Britons, are you happy with your present home freezer?”
+- `tunnel#47` ❌미해결: ag=`unspecified`  “Makes a lot of difference in your appearance.”
+- `tunnel#58` ❌미해결: ag=`unspecified`  “Oh, by the way, Miss Horne, what the devil is a Feckle freezer?”
+- `tunnel#60` ❌미해결: ag=`unspecified`  “There's some new copy on the elevator commercial.”
+- `tunnel#64` ❌미해결: ag=`unspecified`  “Huh, it's a funny day, can't quite put my finger on it, but there's something strange going on.”
+- `tunnel#66` ❌미해결: ag=`unspecified`  “It persisted all through the day until dinner.”
+- `tunnel#99` ✅고침: ag=`home`  “You better get dressed here.”
+- `tunnel#134` ✅고침: ag=`research_institute`  “Dorchin at the research institute.”
+- `tunnel#138` ✅고침: ag=`office`  “And today is the fifteenth of June, and he won't be here to sign the quarterly statement, and I”
+- `tunnel#151` ❌미해결: ag=`unspecified`  “He knew that the development journal contained an article about a new method of trans printing ”
+- `tunnel#204` ❌미해결: ag=`unspecified`  “There was something wrong, something definitely peculiar about what was happening: the call fro”
+- `tunnel#218` ❌미해결: ag=`unspecified`  “Come down here, hurry up.”
+- `tunnel#225` ❌미해결: ag=`unspecified`  “Look at the floor.”
+- `tunnel#226` ❌미해결: ag=`unspecified`  “What about the floor?”
+- `tunnel#230` ❌미해결: ag=`unspecified`  “There's a thin layer of cement, but underneath, its metal.”
+- `tunnel#231` ❌미해결: ag=`unspecified`  “Look here.”
+- `tunnel#233` ❌미해결: ag=`unspecified`  “And here, on the wall.”
+- `tunnel#236` ❌미해결: ag=`unspecified`  “Metal under the floor, behind the walls, every place.”
+- `tunnel#238` ✅고침: ag=`home`  “Mary, I know this sounds crazy, but somebody, for reasons I can't even begin to guess, has take”
+- `tunnel#240` ❌미해결: ag=`unspecified`  “Mary, I'm going to look around a little more.”
+- `tunnel#243` ❌미해결: ag=`unspecified`  “There are a couple of things I've got to figure out.”
+- `tunnel#247` ❌미해결: ag=`unspecified`  “It's outside the door, I guess.”
+- `tunnel#249` ❌미해결: ag=`unspecified`  “You'd better hurry, dear.”
+- `tunnel#254` ❌미해결: ag=`unspecified`  “He won't be there.”
+- `tunnel#255` ✅고침: ag=`research_institute`  “He'll get a meeting with that crackpot Dorchin at the human research institute.”
+- `tunnel#262` ❌미해결: ag=`unspecified`  “Guy, what in the world are you talking about?”
+- `tunnel#270` ❌미해결: ag=`unspecified`  “There were the same unfamiliar faces, the same unusually new looking buildings, the same unusua”
+- `tunnel#271` ❌미해결: ag=`unspecified`  “And on the customary corner, Henry Swanson, pale and furtive, climbed aboard.”
+- `tunnel#277` ❌미해결: ag=`unspecified`  “Get off at the next corner and follow me.”
+- `tunnel#282` ❌미해결: ag=`unspecified`  “Burckhardt, here, behind the fence.”
+- `tunnel#293` ✅고침: ag=`home`  “A lot of your friends are missing, your house seems changed.”
+- `tunnel#294` ❌미해결: ag=`unspecified`  “Yeah, there's something stranger than that: the date.”
+- `tunnel#304` ❌미해결: ag=`unspecified`  “Burckhardt, where were you on the night of the fourteenth about midnight?”
+- `tunnel#308` ❌미해결: ag=`unspecified`  “And I was in my darkroom developing some pictures.”
+- `tunnel#322` ❌미해결: ag=`unspecified`  “I found a way to get in too.”
+- `tunnel#335` ❌미해결: ag=`unspecified`  “They walked for what seemed like two miles until Swanson held his finger to his lips.”
+- `tunnel#340` ❌미해결: ag=`unspecified`  “There's a room a little farther down.”
+- `tunnel#341` ❌미해결: ag=`unspecified`  “We'll be able to look through a glass in the door.”
+- `tunnel#346` ❌미해결: ag=`unspecified`  “Here.”
+- `tunnel#347` ❌미해결: ag=`unspecified`  “Burckhardt, look through this glass.”
+- `tunnel#354` ✅고침: ag=`office`  “Have you gotten a chance to look at the data on those screens?”
+- `tunnel#356` ❌미해결: ag=`unspecified`  “There might be a warning circuit somewhere.”
+- `tunnel#362` ❌미해결: ag=`unspecified`  “Open the door.”
+- `tunnel#364` ✅고침: ag=`office`  “Come on, let's take a look at that data.”
+- `tunnel#369` ❌미해결: ag=`unspecified`  “Tests in the forty-seven-K-twelve group with Marlins cigarettes polled eighty percent using a s”
+- `tunnel#370` ❌미해결: ag=`unspecified`  “Indications are that an extension of this approach would influence at least seventy percent nat”
+- `tunnel#377` ❌미해결: ag=`unspecified`  “Do you know who's behind this?”
+- `tunnel#381` ❌미해결: ag=`unspecified`  “Humans who are interested in developing the perfect propaganda machine.”
+- `tunnel#386` ❌미해결: ag=`unspecified`  “However they do it, what happens is that they let us live through a single day.”
+- `tunnel#388` ✅고침: ag=`office`  “At the end of the day, they evaluate the results, see how we've reacted.”
+- `tunnel#393` ❌미해결: ag=`unspecified`  “Why, in a year he could sell us anything from freezers to political candidates.”
+- `tunnel#398` ❌미해결: ag=`unspecified`  “I don't know, but somehow we've got to get out of this town and get to the FBI.”
+- `tunnel#403` ❌미해결: ag=`unspecified`  “Look through the door.”
+- `tunnel#406` ❌미해결: ag=`unspecified`  “Behind the circuit box.”
+- `tunnel#411` ✅고침: ag=`office`  “We know you're in this room.”
+- `tunnel#433` ❌미해결: ag=`unspecified`  “Come on, let's get out of here.”
+- `tunnel#457` ❌미해결: ag=`unspecified`  “That is the last thing imprinted on your minds.”
+- `tunnel#479` ❌미해결: ag=`unspecified`  “Now, now this door is open.”
+- `tunnel#484` ❌미해결: ag=`unspecified`  “They were standing on a ledge of smooth finished metal.”
+- `tunnel#485` ❌미해결: ag=`unspecified`  “At their feet, the ledge dropped away into a chasm so deep, they could not see the bottom.”
+- `tunnel#487` ❌미해결: ag=`unspecified`  “And yet, just at the limit of their vision, something towered.”
+- `tunnel#494` ❌미해결: ag=`unspecified`  “The great looming figure moved closer.”
+- `tunnel#496` ❌미해결: ag=`unspecified`  “It came closer.”
+- `monkey#0` ❌미해결: ag=`unspecified`  “Act One: Monkey in the Middle.”
+- `monkey#1` ❌미해결: ag=`unspecified`  “So, there's some places where animals almost never go.”
+- `monkey#3` ❌미해결: ag=`unspecified`  “This act ends up in a place like that, but it starts about as far from there as you can get, Da”
+- `monkey#5` ✅고침: ag=`england`  “A few years ago, the photographer David Slater traveled there from his home in England to photo”
+- `monkey#12` ❌미해결: ag=`unspecified`  “Like I said, mean, all over the world.”
+- `monkey#14` ❌미해결: ag=`unspecified`  “And showing your teeth, not to show your teeth, not to stare them in the face.”
+- `monkey#16` ❌미해결: ag=`unspecified`  “There was one shot David really wanted to get.”
+- `monkey#20` ❌미해결: ag=`unspecified`  “He put his camera on a tripod and threw down some cookies to try to entice the monkeys over.”
+- `monkey#24` ❌미해결: ag=`unspecified`  “So, David attached a cable with a button on the end of it to the camera.”
+- `monkey#26` ❌미해결: ag=`unspecified`  “They started playing with it, putting it in their mouths, fighting over it.”
+- `monkey#27` ❌미해결: ag=`unspecified`  “And of course, when, when it, when it got pressed, they automatically looked into the lens.”
+- `monkey#34` ❌미해결: ag=`unspecified`  “The monkeys were into the whole project by now.”
+- `monkey#37` ❌미해결: ag=`unspecified`  “So, David laid down on his stomach and stretched his arm out to steady the tripod with two fing”
+- `monkey#38` ❌미해결: ag=`unspecified`  “A few other monkeys noticed their strange new friend lying full out on the floor and hopped ont”
+- `monkey#39` ❌미해결: ag=`unspecified`  “So, I had monkeys on my back, whilst I'm trying to keep my camera from being knocked, while som”
+- `monkey#48` ❌미해결: ag=`unspecified`  “They weren't that guy at the gym taking pictures of his muscles in the mirror.”
+- `monkey#51` ❌미해결: ag=`unspecified`  “They somehow escape the bounds of selfie and enter the realm of art.”
+- `monkey#52` ❌미해결: ag=`unspecified`  “There was one shot in particular that caught David's eye.”
+- `monkey#53` ❌미해결: ag=`unspecified`  “The monkey's face is very close to the camera, looking straight into the lens.”
+- `monkey#61` ❌미해결: ag=`unspecified`  “I, I, just saw it on the front cover of National Geographic or something like that.”
+- `monkey#66` ❌미해결: ag=`unspecified`  “These monkeys, crested black macaques, are considered to be critically endangered, which is jus”
+- `monkey#69` ❌미해결: ag=`unspecified`  “The selfies didn't end up on the cover of National Geographic, but the British tabloids were in”
+- `monkey#72` ❌미해결: ag=`unspecified`  “Within an hour it was all over your country.”
+- `monkey#74` ❌미해결: ag=`unspecified`  “My inbox went crazy.”
+- `monkey#77` ❌미해결: ag=`unspecified`  “Over the next few months, the monkey selfies sold pretty well.”
+- `monkey#80` ❌미해결: ag=`unspecified`  “I started to just search crested black macaque one day in in the Google.”
+- `monkey#81` ❌미해결: ag=`unspecified`  “And there was Wikipedia, top of the list as always, clicked on that, and there's my image.”
+- `monkey#93` ❌미해결: ag=`unspecified`  “But now anyone could download it from Wikipedia and hang it on their wall or print it in their ”
+- `monkey#94` ❌미해결: ag=`unspecified`  “Wikipedia's opinion is that information on the internet should be free.”
+- `monkey#95` ❌미해결: ag=`unspecified`  “And David soon learned that they had decided the selfie was in the public domain because the mo”
+- `monkey#104` ❌미해결: ag=`unspecified`  “Wikipedia includes a note below the photo which reads, quote: This file is in the public domain”
+- `monkey#105` ❌미해결: ag=`unspecified`  “This decision of Wikipedia's to declare the photo public domain, that was the opening volley in”
+- `monkey#107` ❌미해결: ag=`unspecified`  “David went on the offensive, assembled a team of lawyers, studied up on copyright law.”
+- `monkey#112` ❌미해결: ag=`unspecified`  “One of the founders, Jimmy Wales, was there.”
+- `monkey#113` ✅고침: ag=`conference_facility`  “I soon got to know from the good Wikipedians out there that Jimmy Wales and many of the delegat”
+- `monkey#116` ❌미해결: ag=`unspecified`  “There was quite a few of these images around the place on the internet but, but the one with, w”
+- `monkey#117` ❌미해결: ag=`unspecified`  “Wait, I wanna look that up really fast here.”
+- `monkey#122` ❌미해결: ag=`unspecified`  “Here we go.”
+- `monkey#123` ❌미해결: ag=`unspecified`  “Oh yeah, look at that: If you type Jimmy Wales, monkey, selfie into the Google, you'll find a p”
+- `monkey#138` ❌미해결: ag=`unspecified`  “It was like King Kong walked onto the scene and now David had to battle him too.”
+- `monkey#141` ❌미해결: ag=`unspecified`  “There it was: Photographer being sued by a monkey.”
+- `monkey#146` ❌미해결: ag=`unspecified`  “Just as I found out Wikipedia was stealing it because I stumbled across it, I also stumbled acr”
+- `monkey#158` ✅고침: ag=`home`  “And sure enough one afternoon I was at home.”
+- `monkey#159` ❌미해결: ag=`unspecified`  “And there's a knock at the door.”
+- `monkey#160` ✅고침: ag=`porch_way`  “And a, and a man in a black suit was standing in my porch way.”
+- `monkey#161` ❌미해결: ag=`unspecified`  “Or I opened the door.”
+- `monkey#162` ❌미해결: ag=`unspecified`  “He thrust a large A4 sized white envelope in my hand.”
+- `monkey#163` ❌미해결: ag=`unspecified`  “And says: I've been instructed to, to pass these to you.”
+- `monkey#169` ❌미해결: ag=`unspecified`  “I said: I'm being sued by a monkey.”
+- `monkey#173` ❌미해결: ag=`unspecified`  “Cause he was just, he was a local from a local firm down the road from me.”
+- `monkey#174` ❌미해결: ag=`unspecified`  “And he went on his merry way.”
+- `monkey#178` ❌미해결: ag=`unspecified`  “And then at the end, when you get to the exhibits, it's just a bunch of monkey selfies grinning”
+- `monkey#180` ❌미해결: ag=`unspecified`  “The monkey, whose name is Naruto, was suing David through his next friends, People for the Ethi”
+- `monkey#181` ✅고침: ag=`federal_court`  “The case is officially called: Naruto, a Crested Macaque, by and through his Next Friends Peopl”
+- `monkey#190` ❌미해결: ag=`unspecified`  “They campaigned to change the word fish to sea kittens, so that people would associate seafood ”
+- `monkey#201` ❌미해결: ag=`unspecified`  “I've got a camera in my hands.”
+- `monkey#203` ❌미해결: ag=`unspecified`  “You know, like, the monkey's not thinking of it as: I'm taking a photograph here.”
+- `monkey#204` ❌미해결: ag=`unspecified`  “But that's not required under the copyright law.”
+- `monkey#209` ❌미해결: ag=`unspecified`  “There are like twenty French tourists that I need to sue.”
+- `monkey#215` ❌미해결: ag=`unspecified`  “Because there would be a chance, an outside chance albeit, of it, it just going the monkey's wa”
+- `monkey#218` ❌미해결: ag=`unspecified`  “And everybody had, has the opinion that anything can happen there.”
+- `monkey#240` ❌미해결: ag=`unspecified`  “I'm in a Chippendales costume.”
+- `monkey#249` ✅고침: ag=`federal_court`  “His argument is based on a precedent set in two thousand four in a case called Cetacean Communi”
+- `monkey#260` ❌미해결: ag=`unspecified`  “They believe animals should have recourse in court.”
+- `monkey#266` ❌미해결: ag=`unspecified`  “In that vast history of common law prior to the Copyright Act was there, do you have an example”
+- `monkey#268` ❌미해결: ag=`unspecified`  “We could make the counterargument as to how other humans were denied protection under that law ”
+- `monkey#270` ❌미해결: ag=`unspecified`  “But when you look at the cornerstones of.”
+- `monkey#273` ❌미해결: ag=`unspecified`  “Just to pause on this for a moment.”
+- `monkey#283` ❌미해결: ag=`unspecified`  “But it is fair to say that before the adoption of the fourteenth Amendment, the concepts of pro”
+- `monkey#284` ❌미해결: ag=`unspecified`  “What's going on here is that PETA sees the monkey selfie case in the context of a larger endgam”
+- `monkey#291` ❌미해결: ag=`unspecified`  “And they weigh about six tons They typically travel around seventy five miles in a day.”
+- `monkey#296` ❌미해결: ag=`unspecified`  “In one of them humans are at the top of the food chain either because God wanted it that way or”
+- `monkey#297` ❌미해결: ag=`unspecified`  “We make the rules for everything else in this world.”
+- `monkey#298` ❌미해결: ag=`unspecified`  “In the other picture, and this is the one PETA has hanging on their wall, humans are not at the”
+- `monkey#307` ❌미해결: ag=`unspecified`  “They should be entitled to fundamental legal rights beyond simply food, water, veterinary care,”
+- `monkey#310` ❌미해결: ag=`unspecified`  “She was being held in a tiny crappy cage.”
+- `monkey#313` ❌미해결: ag=`unspecified`  “The thing is, David Slater the photographer who's getting sued by the monkey, he agrees with PE”
+- `monkey#319` ❌미해결: ag=`unspecified`  “Did the fact that this group, that's sort of on your side, was the one kind of attacking you or”
+- `monkey#333` ❌미해결: ag=`unspecified`  “Andrew Dhuey said this all along to me: There's no way that this is gonna go anywhere.”
+- `monkey#351` ❌미해결: ag=`unspecified`  “There's no, there's no way to acquire or hold some money which the copyright would give.”
+- `monkey#352` ❌미해결: ag=`unspecified`  “There's no losses to reputation.”
+- `monkey#353` ❌미해결: ag=`unspecified`  “There's no even, even, there's no even allegation that the copyright could've benefited somehow”
+- `monkey#355` ❌미해결: ag=`unspecified`  “There's nothing.”
+- `monkey#380` ❌미해결: ag=`unspecified`  “That yes, he was being sued by a monkey.”
+- `monkey#384` ❌미해결: ag=`unspecified`  “After two years the humans managed to figure things out on their own.”
+- `monkey#388` ❌미해결: ag=`unspecified`  “But here's what I do know: David Slater still has the monkey selfie copyright registered in his”
+- `monkey#390` ❌미해결: ag=`unspecified`  “About Wikipedia: They've still got the monkey selfie up there for anyone to download.”
+- `monkey#391` ❌미해결: ag=`unspecified`  “They still claim it's in the public domain.”
+- `monkey#393` ❌미해결: ag=`unspecified`  “There's just one other thing that should be mentioned about Naruto: There were a bunch of monke”
+- `monkey#395` ❌미해결: ag=`unspecified`  “She's the one who identified Naruto as the monkey in the famous selfie.”
+- `monkey#403` ❌미해결: ag=`unspecified`  “He's taking credit for an artistic work that was actually made by a female monkey.”
+- `monkey#406` ❌미해결: ag=`unspecified`  “It's in the nature of both humans and monkeys to horse around in front of cameras.”

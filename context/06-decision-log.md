@@ -1533,3 +1533,269 @@ methodology/architecture/README 갱신. [[hi-ontop-deneut]]. [[2026-06-13]]
   + **★ label commit ↔ state reset 분리**(출력은 LLM, 내부는 H0/H1 이중상태로 오염 회피). cross-encoder=cascade 2순위.
   lag/학습=별도 relaxation 트랙(main=strict 0-lag·no-train). negative result 는 LLM 0-lag judge 까지 실패해야 정당. 선결=spike 후보 recall 상한 측정.
   상세 [[HANDOFF_01]] §"축2 재공략 (2026-06-20)".
+
+## 2026-07-24 — S5 v3 개별 fix 측정: 타깃 지표 primary (D-M5 재현 회피)
+
+**결정:** v3 재설계의 개별 fix 기여를 **deployable Score 로 비교하지 않는다.** 대신 각 fix 의 **타깃 현상
+지표**(gold-free, 훨씬 민감)를 주 판정으로, Score 는 −0.09 안전장치로만 쓴다.
+
+**근거:** run/배치 nondeterminism **σ≈0.06**(③·오픈모델 배치 실측), deployable Score 판정 문턱 0.09. 개별 fix
+는 국소(time base rate 0.037·space ✗ 2/20)라 Score 를 0.09 못 움직임 → 7변종 Score 비교 = 전부 "차이없음" or
+하나가 노이즈로 +0.05 떠서 **채택**. 이는 [[no-postresult-criterion-change]] / D-M5(변종 다수→best 고르기) 재현.
+
+**사전 선언(rubric-before-results, 결과 전 동결):** fix 채택 = (1) 타깃 지표가 의도 방향 개선[주] AND
+(2) Score v2 대비 −0.09 이내[안전장치, 개선요구 아님]. **Score 상승은 채택 근거 아님.** 목표 = "라벨 타당성 개선
++ Score 불감", 성능 튜닝 아님(이론적 정확성 교정).
+
+**변종 7→4:** (1) time(E+conseq+first 묶음, 타깃 3개 따로) (2) space-A (3) space-H (4) intent-②.
+- 묶기/나누기: time 셋은 같은 `temporal_shift_marker` 정의 수정→1추출·3지표. space A/H·intent ①/② 는 Stage
+  위치(1 vs 2)·방향(under vs over) 달라 **분리**(섞으면 상쇄).
+- **intent-① 제외**: ② 진단이 이미 기각(수행적 대사 P(goal≠none)=41.6%>논의 24.8%=모델이 화행 무시 안 함).
+  "① 진단 지지 시만" 불충족 → 무해한 예시보강으로만.
+- **space-A 는 obs_77176(항공, repcorpus)에서 타깃 측정**(dev-3 엔 탈것 서사 없어 양쪽 0). Score 안전장치는 dev-3.
+
+**base labeler = Qwen3.6-35B-A3B (no-thinking, 로컬 vLLM)** — reasoning-off 자동 충족. 단일 라벨러 caveat 명시.
+스펙 `plans/optimized-growing-crystal.md`, 코드 `llm_s5_states.py --fixes`, 산출 `outputs/experiments/
+2026-07-23_s5_redesign/PERFIX_REPORT.md`. (7모델 cross-model 비교 결과는 [[HANDOFF_s5-v3-redesign_0723]] ④ 로그.)
+
+## 2026-07-24 — 동결: S5 base labeler = Qwen3.6-35B-A3B (no-thinking, 자체호스팅)
+
+**결정(사용자 지정):** S5 추출기의 base labeler 를 **`Qwen/Qwen3.6-35B-A3B`(fp8, 로컬 vLLM, no-thinking)** 로
+**동결**한다. 프록시(deepseek-v4-pro) 504·부하 의존성을 벗어난 재현 가능한 기준 라벨러. 대량 확장(1만편급)의 배포 config.
+
+**근거:**
+- **thinking 미채택**: 100문장 human-verify(격리) 실측 — 추론 순효과 **+4/100**뿐이고 **축별 불균등**(intent·causality
+  +3 / space −2·protagonist −1, n=20/축=노이즈 수준). 비용은 **토큰 ~40배·콜당 ~46초.** 가성비 없음.
+- **no-thinking 이 동시성·속도·비용 상위호환**: 배치20 실측 KV 벽 no-think **~320** vs think ~256, 요청 ~2초 vs ~40초,
+  토큰 1/40. 품질 손실 −4(그마저 갈림). ⇒ 대규모는 no-thinking 확정.
+
+**동결 범위 = 라벨러 모델·모드만.** 프롬프트 버전(v2 vs v3 fixes)은 **별개 축**으로 진행 중(동결 아님).
+서빙 스펙·동시성 벽·기동 커맨드는 `context/methodology/infrastructure.md §4c`. 코드 `llm_s5_states.py
+--engine vllm --no-reasoning`. 관련 [[no-postresult-criterion-change]](배치 vs 격리 +5 는 nondeterminism 교락,
+통제 테스트 전 미채택).
+
+## 2026-07-25 — Stage-0 코퍼스 전처리(F/G) 적용 + 정제본 생성
+
+**결정(사용자 지정 2건):** ①B 대표 코퍼스 master 에 **Stage-0 전처리를 적용**한다. ① 구분선(`* * * * *`)
+분할점 transition 을 **gold scene boundary=1** 로 표시(저자 지정 장면경계 = 평가용 gold, method 엔 개수 미제공
+→ deployable 규약 준수). ② 이번 범위 = **정제본 생성·검증·문서화까지**(동결 S5 라벨러 재실행은 다음 턴 별도 판단).
+
+**배경·근거:** 동결 master(`repcorpus_master.jsonl`)는 `fetch_repcorpus.py`가 `strip_pg`(PG 헤더/푸터)만 걸러
+**본문 내부 잡물 잔존**. human-verify 오류 스캔에서 라벨 노이즈 유발 확정 — obs_37511 서점 광고문에 protagonist
+억지 배정(ds=third/qwen=none, No.74), `* * * * *`가 문장 중간 융합해 두 장면이 한 transition 에 붙음. 이는 사전등록
+시 "Stage-0 별도 prep"으로 **예정했으나 미적용**이던 항목의 적용이지 **결과 후 기준변경 아님**([[no-postresult-criterion-change]]).
+라벨러를 방금 동결(위 항목)했고 F/G 는 그 **상류·독립** 이라 타이밍 적합.
+
+**설계:** 동결 `split_sentences` **불변**(문장화 후처리로만). 코드 `scripts/eacl_phase0/stage0_clean.py`. 연산
+(정정판, 아래 참조): **DROP_HEAD 12**(문서 머리 front-matter 통삭제: PG 크레딧·저자 약력·풍자 title-page·섹션번호) ·
+**STRIP_PREFIX 7**(제목·바이라인·판본이 서사 첫 문장에 융합된 접두 제거) · **DROP 9**(중간/뒤 순수 boilerplate:
+크레딧·Transcriber note·저작권 갱신 안내·서점 광고) · **STRIP_SUFFIX 2**(`[Transcriber]` 접미) · **SPLIT 10**
+(구분선 → 분할·gold boundary). 12문서 고정이라 머리 front-matter 는 **문서별 명시 스펙(HEAD_SPEC)**. 원본 보존,
+산출 `repcorpus_master_stage0.jsonl`(2233→2222 tr, 10 gold boundary). 전량 감사 `.../STAGE0_AUDIT.txt`. 재추출 =
+`repcorpus_s5_q36_35b_v2_stage0`(드라이버 `run_repcorpus_stage0.sh`). 인프라 `infrastructure.md §5`, 개정로그
+`PRE_REGISTRATION.md`(수정 로그 2026-07-25).
+
+**⚠️ 정정(2026-07-25, 재작업):** 초판 Stage-0(23연산)는 문서 **머리 front-matter 한 부류를 통째로 놓쳤다** —
+제목+바이라인(저자명)·저자 약력·풍자 부제가 서사에 융합. junk 분리집계 중 옛 human-verify 오염 5건과 대조하다
+발견(특히 #60 Twain "THEN CLAWED BACK…" title-page = 초판 미커버, "풍자 정상서사"로 오판했던 것). **바이라인
+저자명이 Stage-1 cast/protagonist 추출을 오염**시킬 수 있어(예: "Charlotte Perkins Gilman"·"Evelyn Goldstein"이
+등장인물化) 샘플 밖에서도 유해. 전 12문서 머리 실사 → 완전판(40연산)으로 재작성, 초판 상태의 재추출은 폐기·재실행.
+옛 오염 5건(#56 크레딧·#60 부제·#63 광고·#82 바이라인·#90 구분선) **전부 커버 확인**.
+
+**미완(다음 단계):** 정제본 위 human_sample 재생성(블라인드 sheet·answer_key, seed 동일) + **저번 양식(예/아니오
+웹도구 `label_web.html`)** 재현. junk 유래 오류(N=옛 오염 5)를 **입력정제 N / 실제 라벨오류 M−N(옛 model-wrong 2
+space context-leak 등)로 분리 집계**해 "라벨러 개선" 오인 금지([[no-postresult-criterion-change]]).
+
+## 2026-07-25 — Stage-1 목록 비결정성 = 수용+문서화 (결정성 fix 실패)
+
+**결정(사용자 지정):** frozen 라벨러 Stage-1(story_lists) 추출이 run-to-run 비결정적임을 **수용하고 문서화**한다
+(N회 집계 안정화·프롬프트 제약 미채택). frozen stage0 run·human_sample·answer_key 는 **단일 draw** 기준으로 사용.
+
+**근거(실측):** obs_74140 stage1 5회 — locations 17~44(±30~50%), 고유목록 5/5. temperature=0 greedy인데도 변동.
+짧은 프롬프트는 6/6 완전 결정적 → **긴 prefill(255문장)+MoE(A3B) greedy 커널 reduction-order** 비결정성이 긴
+JSON 생성의 near-tie 다수를 뒤집어 증폭. **시도한 fix 전부 실패**: 동시성=1(무효), `--no-enable-chunked-prefill
+--no-enable-prefix-caching`(3/5 동일=부분), `--enforce-eager`(무효, 5/5). 진짜 fix=batch-invariant 커널은 vLLM
+0.25.1에 flag로 없음. 서버는 원본 frozen config로 롤백(재기동 시 `ninja` PATH 필요 — infrastructure §4c).
+
+**영향:** closed-choice 목록(space location·intent goal)이 run마다 달라 gold 라벨 재현성 제한(목록 축 한정).
+Stage-2 per-item 라벨의 안정성은 미측정. **행동:** 논문/REPORT에 "단일 draw·비결정성" 한계 명시, 목록 축 결론은
+이 유보 하에 해석. 별개 관찰 — causality 67%·protagonist 66% reset 발현율=포화(경계 변별력 낮음), space/time/intent은
+희소·변별적. 상세 = `context/methodology/infrastructure.md §4c`, 실험 = `outputs/experiments/2026-07-25_stage0_relabel_verify/REPORT.md`.
+
+## 2026-07-25 — causality requires/produces 프로토타입 = 기각 (사전등록 조건 FAIL)
+
+**결정:** causality reset을 event_type-change(65% 포화) 대신 **Indexter식 produces[t-1]∩requires[t] 인과연결**로
+바꾸는 안을, 사전등록 소표본 프로토타입(`outputs/experiments/2026-07-25_causality_reqprod_proto/`)으로 게이트 →
+**두 변형(V-closed 닫힌목록 / V-free 자유서술) 모두 FAIL** → **채택 안 함.**
+
+**배경(진단은 유효):** event_type-change는 "문장유형 교대"(대사↔묘사↔행동)라 소설 리듬을 경계로 오판(포화 67%).
+Zacks/EISM 기준 = 종류변화 아닌 **인과 연결**("톱질→탈출"은 유형 달라도 연속). 방향은 옳음.
+
+**프로토 결과(통과조건 사전선언, 결과 후 불변):** V-closed = 빈집합 55%(≥40% 실패, dominant_actor 재현 — 목록
+선택 어려워 []로 도피)·인과연쇄→연속 0.69(<0.8). V-free = 경계일치 0.80(<0.85 불안정)·인과연쇄→연속 0.44
+(표현변이로 토큰매칭 붕괴, S3 재현). 둘 다 장면전환 2/2는 맞힘 = 큰 단절은 잡으나 **인과 연속 유지가 실패**(핵심).
+
+**근거:** 이론이 아니라 **매칭 신뢰도·안정성**이 채택 기준([[no-postresult-criterion-change]]). frozen 라벨러
+규모에서 매칭 가능한 requires/produces를 못 뽑음. **fallback = causal_marker(명시 인과, enum 안정, 암시연쇄 못잡음)
+후퇴 또는 Phase X 이월. reset 규칙 ablation(event_type-change 제거, time축 tense-change 제거→dev 0.598→0.634 선례)이
+직접 처방이며 최종 판정은 Gate C DTS Score.** 상세 = 실험 dir REPORT/RESULT, 인과규칙 코드 line 507-514.
+
+## 2026-07-25 — causality 반사실+인과 2단계 창 = 기각 (사전등록 P2·P5 FAIL) + causality 약축 확정
+
+**결정:** causality reset을 **Trabasso & Sperry(1985) 두 기준의 2단계 구현**(1단계 반사실 필요성 →
+2단계 인과 vs 가능화)으로 창 W=3 안의 모든 선행 문장에 적용하고 `enabling`을 링크에서 제외하는 안을,
+사전등록 게이트(`outputs/experiments/2026-07-25_causality_cf_window/`)로 판정 → **기각.**
+**FAIL 분기 발동: causality = 약축 확정, 3단계(사건 노드+사슬 상태축) 미착수, 재조작화 종료.**
+
+**설계 근거(문헌):** Trabasso는 서로 다른 두 기준을 썼다 — (a) 반사실 필요성은 물리·심리·동기·**가능화
+전부**에 높은 강도를 주고, (b) **인과 기준**이 앞의 셋과 가능화를 가른다. 한 질문으로 합치면
+prisoner_in_yard→sprint(반사실로는 "그렇다")에서 스킴 실패와 프롬프트 실패가 분리되지 않아 2단계로 나눔.
+
+**판정(사전등록 조건, 결과 후 불변) — 다섯 중 둘 FAIL:**
+| | 기준 | 결과 | |
+|---|---|---|---|
+| P1 인과판별 | 단절≥0.80 / 오발현≤0.20 | **1.000 / 0.000** (2 draw) | PASS |
+| **P2ⓐ cutaway→링크** | **≥0.70** | **0.500 / 0.562** | **FAIL** |
+| P2ⓑ enabling 통제 | ≥0.70 | 0.875 | PASS |
+| P3 발현율 | [0.15,0.40] | dev-3 **0.309** · repcorpus **0.303** | PASS |
+| P4 ΔScore (t\*=3 동결) | ≥−0.09 | **−0.0523** | PASS |
+| **P5 lift CI 하한** | **>1.0** | **0.758** (pooled lift 1.136) | **FAIL** |
+
+**핵심 결과 — 포화는 고쳤고 판별력은 못 얻었다.** 발현율 0.660→0.309(halo는 0.869로 악화시켰던 것과
+반대 방향, 문헌 20~30%·Zacks 22%와 정합)인데 **pooled lift는 1.135→1.136으로 동일.** 문서별로는
+tunnel 1.171→**1.654**(상승)이나 monkey 1.148→**0.915**, pieman 1.052→**0.930**으로 **1 미만 = 역방향**
+— pooled는 tunnel 한 편이 끌어올린 값이다. 경계횡단 링크밀도 **0.447 vs 경계내 0.461 = 무차이**가
+이를 예고했다(쌍 수준에서 인과 링크가 경계와 무상관).
+
+**기각은 과결정(over-determined).** P2ⓐ는 probe gold 타당도가 의심되나(cut11 열쇠·cut9 이송명령·cut3
+편지 = 엄밀히 읽으면 실제로 가능화, **probe 작성자 라벨 오류 가능성 높음**), **P5는 사람 gold 1005
+전이에서 나온 수치라 probe와 무관하게 독립 실패**했다. 따라서 "계측기만 실패"로는 설명되지 않는다.
+단 P5 FAIL의 MDE 해석은 유지: 관측 lift 1.44 필요·참값 1.3에서 검정력 29% → FAIL 자체는 "n=66에서
+중간 효과 검출 불가". **다만 점추정치가 프록시와 동일하다는 것은 검정력 부족이 아니라 "개선 없음"의
+직접 증거**(둘을 구분해 기록).
+
+**부수 확인:** ① **2단계 분리가 load-bearing** — 반사실 인정 0.72~0.74 중 **36~38%가 enabling**이라
+한 단계로 물었으면 전부 링크로 샜다. ② 4종 스킴은 이진 퇴화 아님(링크 내 psychological 0.66~0.71)이나
+**physical이 5~9%뿐 = `psychological` 과적용**(별도 결함, 이번 기각과 독립). ③ W=1에서도 0.54로
+halo 0.869보다 낮음 → 포화 완화의 주 기여는 창이 아니라 반사실 기준+enabling 제외.
+
+**행동:** frozen `llm_s5_states.py reset_causality` **미변경**(별도 열 측정만). 3단계 미착수.
+논문 서술 = 조작화 실패 5건(event_type 프록시·reqprod strict·reqprod carry-forward·Zacks-halo·반사실 창)
+= *"관계적 구성개념이 계산 프레임 이식에 특히 저항한다"*(D-B9 §5 확장). 상세 = 실험 dir
+PRE_REGISTRATION/RESULT, 러너 `causality_cf_window.py`·`causality_cf_report.py`.
+
+## 2026-07-25 — 🔴 정정: halo 가드레일 Score는 gold 0.5% 코퍼스에서 계산됐다 (무효)
+
+**정정 대상:** 2026-07-25 causality Zacks-halo 실험(`outputs/experiments/2026-07-25_causality_halo_zacks/`)
+RESULT의 **guardrail 조건 "Δ=+0.000 PASS"** 및 그 안의 "경계율(참고) ~0.07".
+
+**사실:** `repcorpus_masters_stage0` 의 gold 경계는 **10개 / 2222 전이 = 0.45%**이고 **12편 중 6편이
+0개**다. RESULT가 인용한 "경계율 ~0.07"은 **dev-3 밀도를 잘못 옮겨 적은 것**. 따라서 그 코퍼스의
+Score(0.3959)와 ΔScore는 **무의미**하며 "guardrail PASS"는 성립하지 않는다.
+
+**영향 범위:** halo 실험의 **판정 자체는 불변** — 기각 사유는 sanity(발현율 0.869) FAIL이었고 이는
+gold와 무관하다. 무효화되는 것은 guardrail 조건의 PASS 표기뿐이다(원래도 RESULT가 "속 빈 PASS"로
+기술했으나, 실제로는 그보다 더 근본적으로 계산 불가였다).
+
+**재발 방지(코드):** `scripts/eacl_phase0/halo_guardrail_score.py` 에 **gold 밀도 가드** 추가 —
+대상 문서집합 밀도 < 1%면 Score 계산을 **거부**한다. 기본 호출이 이제 REFUSED를 내며,
+`--min-gold-density 0` 로 우회 시 기존 수치(t\*=5, 발현율 0.674→0.869, Δ=+0.0000)를 그대로 재현함을
+확인(회귀 검증 완료). 동 스크립트에 `--matrix` 반복·`--swap-file/--swap-field`·`--tstar`(동결값 명시)·
+lift+부트스트랩 CI 도 추가.
+
+**교훈:** Score 가드레일은 **gold가 있는 집합에서만** 의미를 갖는다. 사람 gold가 있는 것은 dev-3
+(pieman 18/95 · tunnel 18/503 · monkey 30/407)이며 repcorpus는 발현율·분포 진단 전용이다.
+
+## 2026-07-25 — 🔴 정정: vLLM single-stream 결정성 주장 반증 + 동시성-결정성 무관
+
+**정정 대상:** `context/methodology/infrastructure.md §4b` 의 *"vLLM temp0 = single-stream 완전결정 /
+배치 시 flip 25~30%"*. **현 서버 설정에서 성립하지 않는다.**
+
+**실측 1 — 통제 테스트(동시성=1, 완전 동일 요청 순차 8회, pieman space 배치20):**
+run1 대비 항목 불일치 `[2, 2, 14, 16, 0, 0, 14]`(20문장 중) · **고유 출력 4종**(3/2/2/1회).
+즉 **단일 스트림에서도 같은 요청이 다른 답을 낸다.**
+
+**실측 2 — 결정성 vs 동시성 곡선(pieman 96문장 5배치, 각 동시성에서 2회 실행 후 라벨 일치):**
+| 동시성 | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| 라벨 일치 | 0.854 | 0.906 | 0.844 | 0.812 | 0.823 | 0.833 | 0.781 |
+**절벽도 단조 감소도 없다.** 0.78~0.91 사이 진동이며 차이는 표본 노이즈 수준.
+
+**함의:** ① **"동시성을 낮춰 재현성을 산다"는 완화책은 무효** — 처리량만 잃는다(동시성 1 = 0.29 콜/s
+vs 64 = 4.14 콜/s, 14배). 대량 추출은 동시성 64 권장(200은 포화·지연 2배). ② **k=3 다중샘플 다수결의
+근거가 강화된다** — 인프라로 못 잡으므로 샘플링으로만 완화 가능. ③ 원인 미확정(fp8 양자화 / prefix
+caching / MoE 라우팅 중 무엇인지 이 테스트로 못 가름). 2026-07-25 Stage-1 비결정성 항목의
+`--no-enable-prefix-caching` 부분효과(3/5)와 일관.
+
+**한계:** 서버 = `--quantization fp8 --max-num-seqs 512 --gpu-memory-utilization 0.85`, prefix-caching
+비활성 플래그 없음. 원 기록이 어떤 설정에서 측정됐는지 불명 — 설정 차이로 둘 다 참일 수 있다.
+축 1개(space)·1문서(pieman) 표본. 프로브 `/tmp` 스크립트(재현 가치 있으면 scripts/ 승격 필요).
+
+## 2026-07-25 — 🔒 S5 앵커 버전 동결: v3.1 = H + E (D-B14)
+
+**결정:** M4~M7 앵커 공급용 S5 프롬프트를 **`p0s5-eism-v3.1` 로 동결**한다. 구성 = **H(space 문장근거
+강제·맥락추론 금지) + E(time 문두조건 통일 + consequence 접속사 배제 + First 등 순서표지 보강)**.
+`--prompt-version v3.1` (`V31_FIXES = {space_H, time_E, time_conseq, time_first}`).
+
+**제외:** **A(space vehicle/airspace 목록)** = 빈도 조건 미충족(obs_77176 항공 단독 현상, 타 문서 regex
+FP) · **B①** = ②진단 기각(gap +16.8%) · **B②** = 타깃 악화(상시목표 3→5, PERFIX).
+
+**판정(봉인된 기존 규칙 그대로 — 새 기준 만들지 않음):**
+| 조건 | 기준 | 결과 |
+|---|---|---|
+| H 타깃 no-cue non-unspec | ↓ (단독 5.9%→3.6%) | dev-3 **7.1% → 5.0%** (50/704→35/704) ✅ |
+| E 타깃 문중 marker (repcorpus) | ↓ (단독 41.2%→22.5%) | 41.2% → 22.5% ✅ |
+| 안전장치 평균 ΔScore | ≥ −0.09 | **+0.0146** ✅ |
+
+**계산 방법(API 0):** H·E 는 축별 모듈이고 **Stage-1 을 바꾸지 않음**(sha 3편 전부 동일 확인) → 조합 =
+`fix_space_H` 의 space + `fix_time` 의 time + v2 의 나머지 3축 **재조합**. 재조합 결과가 캐시된
+`reset_matrix` 와 **전 축·전 전이 완전 일치** 검증. 러너 `scripts/eacl_phase0/s5_v31_combo_eval.py`.
+
+**dev-3 Score (t\*=3, deployable):** pieman 0.5551→0.5494 · tunnel 0.4884→0.4884 · monkey
+0.3248→**0.3745** · 평균 0.4561→**0.4708**. space_H 반복런 r1/r2/r3 에서 평균 Δ **+0.0101~+0.0186**(부호 안정).
+
+**🔴 정직 기록:** ① **E 는 dev-3 에서 no-op** — 라벨 4개(전부 monkey)만 바꾸고 Score 0.0000 이동.
+조합 이득은 전부 H(monkey +0.0497)에서 나온다. E 의 채택 근거는 repcorpus 타깃 지표이지 dev-3 Score 가
+아니다. ② **+0.0146 은 노이즈 안**(5런 실측 σ≈0.035, √2σ≈0.049) → **성능 향상 주장 불가**, 채택 근거는
+라벨 타당성. ③ 기준선 draw 의존: 동결 v2 draw(0.4561)는 v2 5런 평균(0.4358)보다 +0.020 높은 draw라,
+5런 평균 대비로는 Δ=+0.035. ④ PERFIX_REPORT 의 time monkey Δ=+0.012 와 본 재조합 +0.000 이 불일치
+(재조합은 캐시 matrix와 완전일치 검증됨 — PERFIX 재구성 경로 차이 추정). 판정 근거가 Score 가 아니라
+판정 불변. ⑤ **측정 범위 = dev-3 3편뿐.** tiage/dialseg711/superseg/ami 는 동결 라벨러 추출 자체가 없음
+(기존 §3.5 7개 표는 fable5 시절·D-M5 오염값 → 나란히 비교 금지).
+
+**확정 prompt_sha256 (v3.1):** stage1 `7ea7abff71…`(v2와 동일) · space `4d9fe79cdd…` · time
+`a6a00bc7dd…` · protagonist `12854ec939…`(=v2) · causality `b9710606ab…`(=v2) · intentionality
+`7f5d2dc141…`(=v2). **변경 축 = space·time 2개뿐** → 기존 v2 앵커에서 **3축은 재사용 가능**.
+
+## 2026-07-28 — factored_slot 에 dynamics + next-state 예측 추가 (SEM 계승 3단계 정당화)
+
+**무엇.** `src/hi_ontop/factored_slot.py` 에 `dynamics` 인자(None/`per_slot`/`shared`)와
+`L_pred = ‖ẑ_{t+1} − z_{t+1}‖²` 를 추가. forward model `f_k` 가 다음 슬롯 상태를, readout 이 다음
+문장 임베딩을 예측한다. 기본값 None → 기존 수치 완전 재현.
+
+**SEM 계승 원칙 3단계:**
+1. **SEM 에 있나 → 있다.** SEM 의 핵심이 "학습된 scene dynamics 로 예측하고 예측 실패에서 분절"이다.
+   오히려 **없던 쪽이 이탈**이었다 — Phase 2 de-risk 모듈이 anchor-only 였고, `method-registry.md`
+   §3 공통 전제("학습 신호 = 자기지도 next-state 예측 + anchor")를 절반만 만족했다.
+   따라서 이번 추가는 **신규 메커니즘 도입이 아니라 명세 복원**이다.
+2. **SEM 철학과 충돌하나 → 부분 충돌.** 예측 대상을 **공용 768D 의미공간**으로 둔 것은 SEM 의
+   scene-space 예측과 다르고, 설계문서 `factored-slot-eism-v0_1.md` §Risks 가 경고한
+   *"semantic-space prediction re-importing IDM"* 에 해당한다. §4.2 의 **확률적 surprise(−log p)**
+   와 §4.6 의 **slot-native 예측 공간**도 미구현이다. **충돌을 인정하고 진행**했으며, 우선순위는
+   "명세 복원 > 완전한 형태" 로 두었다(1차 탐색 패스, D-B16).
+3. **본 로그 append** — 이 항목.
+
+**실측 결과(D-B17).** 예측오차를 경계 신호로 쓴 규칙이 리셋확률 합보다 **일관되게 나빴다**
+(dev-3 pooled Score 0.32~0.33 vs 0.41~0.42, 2 seed × 2 모델 전부). dev-3 ΔScore(M5−M4)도
+anchor-only 대비 개선 없음. ⇒ 위 2번의 충돌(의미공간 예측 = IDM 재수입)이 실제로 비용을 치른
+것으로 보이나, `pred_weight` 미튜닝·seed 2개라 확정할 수 없다.
+
+**미구현으로 남긴 것 + 사유.** sticky-CRP κ(§4.4) · 슬롯별 우도비 스위칭(§4.5) · 이종 확률분포족
+(§4.2) · slot-native 예측 공간(§4.6) · particle smoothing(§4.7) · event switching(경계에서 상태
+리셋). 이들은 설계 사양이 있으나 이번 범위 밖이며, **§4.4+§4.5 가 다음 1순위**다(정수 임계 병목
+제거 — D-B16 결과의 "경계 불일치 77.7% 가 count 2↔3" 이 근거).
+⚠️ CLAUDE.md "중요 의사결정은 codex 위임" 규칙상 설계 선택은 codex 판정 대상이나 본 세션에 codex 가
+없어, **이미 문서화된 명세만 구현하고 새 설계 결정은 하지 않는** 방식으로 우회했다.
+
+**cascade.** `context/methodology/factored-slot.md` 신설(이 모듈이 methodology 에 한 번도 기록된 적
+없었음) · `EACL/method-registry.md` §1·§3 상태 갱신 · `EACL/phase0-decisions-and-runs.md` D-B17.

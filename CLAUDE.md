@@ -135,6 +135,32 @@ python scripts/check_step_done.py
 
 `scripts/run_*.py` 형태의 단독 script (예: `run_tiage_full_compare.py`) 도 default output 을 `outputs/experiments/<name>/REPORT.md` 로 둔다. `--name` 인자 + 그 폴더 안에 self-contained.
 
+## 평가 메인 지표 = Score (최상위 강제 규칙, 2026-07-13)
+
+**모든 분절 성능 비교의 메인 지표는 공식 DTS Score 단일 숫자다. AUC 는 보조(참고)일 뿐이며, 절대 메인으로 보고하지 않는다.** (반복 실수: 편의상 AUC 로 보고하지 말 것 — Score 를 먼저·headline 으로.)
+
+### Score 수식 (헷갈리지 말 것)
+
+```
+Score = 0.5 · F1  +  0.25 · (1 − Pk)  +  0.25 · (1 − WindowDiff)
+```
+
+- **범위 [0,1], 높을수록 좋음.** (Pk·WD 는 오류율=낮을수록 좋음이므로 `1−` 로 뒤집어 방향 통일.)
+- **가중치 고정**: F1 에 0.5, (1−Pk) 에 0.25, (1−WindowDiff) 에 0.25. (등가중 1/3 아님 — F1 이 절반.)
+- **F1** = boundary F1, `f1_score(average='binary')` (경계=positive 클래스만).
+- **Pk / WindowDiff** = `nltk.metrics.{pk,windowdiff}`, window = `max(2, round(len/(sum+1)/2))`.
+- 출처 = SuperDialseg `SegmentationEvaluation.total_score` (HANDOFF_04). **구현은 `hi_ontop.dts_scoring.score_dialogues` 를 그대로 호출**(직접 재구현 금지). 집계 = per-dialogue 계산 후 대화 수로 평균, 끝-turn 규약(segment 의 *마지막* turn=1), 마지막 turn label·pred=0.
+
+### 평가 모드 = **deployable** (필수 · 메인) — matched@gold/top-N/density-matched 아님
+
+**모든 성능 보고의 메인은 deployable Score 다: 분절기가 경계 *개수를 스스로 결정*한다** (고정 임계값 또는 적응 임계로 self-determine). **gold 경계 수를 방법에 절대 주지 않는다.**
+
+- **왜 matched@gold 가 메인이 될 수 없나 (반복 실수 — 오해 금지):** matched@gold = top-N = density-matched 는 **각 방법에 "정답 경계 개수 N" 을 먹여** top-N 만 예측시키는 것 = **oracle 개수 누출**. 실제 배포에선 경계가 몇 개인지 모른다. 개수를 주면 과예측/과소예측 벌점(Pk/WD)이 사라져 **Score 가 인위적으로 부풀려진다**. 따라서 matched@gold 는 **메인 지표가 아니다.**
+- **matched@gold 의 유일한 허용 용도:** "개수를 안다면 어느 쪽이 경계를 더 잘 *순위화*하나" 라는 **ranking 진단**(AUC 와 동급)으로만, **"oracle 개수 사용" caveat 를 반드시 명시**하고 보조로. 성능 주장에 쓰지 않는다.
+- **임계값이 문서 길이에 안 맞아 과예측하는 것은 방법의 실제 약점이다** — matched@gold 로 가리지 말 것. 개수를 문서 길이에 적응(percentile/경계밀도 사전/적응임계)시키는 것은 **방법의 일부**이며 deployable 로 평가받아야 한다.
+- **deployable 절대 규칙:** (1) 임계값·적응규칙은 **dev 에서 정해 동결**, test 에서 재선택 금지(개수 자가결정 규칙 자체가 방법의 일부). (2) mode(deployable vs matched)·부분집합·δ* 가 다른 두 Score 를 **직접 나란히 비교 금지**(같은 조건에서만).
+- EACL Phase 0 스크립트 `eval_seg_score.py` 는 sweep/matched 도 출력하나 **메인 판정은 deployable(고정 t\*) Score** 로 한다. IDM baseline 은 튜닝 시비 차단 위해 **raw-cosine**(인접 문장 mpnet 코사인 거리, 프로젝트 HP 무관) 병기.
+
 ## 산출물 / 실험 디렉토리 사용법 (canonical, 최상위 규칙)
 
 **용어**:
@@ -253,6 +279,23 @@ Claude Code가 파일 1개를 수정·생성·삭제할 때마다 **다른 파�
 - 진행 정상이면 다음 점검(또 10분 이내) 예약, 정체/오류면 **즉시 사용자에게 보고**
 
 이유: 인코더/추론 멈춤·과분절 폭주·OOM·import error 등 silent failure가 발생해도 사용자가 모르고 기다리는 일을 막는다. 한 번 시작하고 던져두지 않는다.
+
+## LLM 배치 추출 병렬화 (필수, 2026-07-21)
+
+**deepseek 등 느린 LLM 라벨러로 S5 추출(`llm_s5_states.py`)을 여러 문서·여러 축에 돌릴 때는 순차 실행 금지 — 반드시 병렬화한다.**
+
+배경: deepseek-v4-pro는 배치(20문장)당 ~40초(~31문장/분). dev-3 5축 순차는 수 시간. 병렬화로 2시간→~30분.
+
+1. **문서·축 단위 병렬**: `llm_s5_states.py`는 `--axis <name>`로 축 하나만 뽑을 수 있고, `{axis}_states.jsonl`를 축별 파일에 써 **충돌 없음**. `xargs -P4`로 (문서×축) 작업을 **동시 4개**로 돌린다(deepseek rate-limit 안전선; 8개는 실패 위험). 예:
+   ```bash
+   printf '%s\n' tunnel:space tunnel:time monkey:protagonist monkey:causality ... \
+   | xargs -P4 -I{} bash -c 'd="${0%%:*}"; a="${0##*:}"; .venv/bin/python scripts/eacl_phase0/llm_s5_states.py \
+       outputs/eacl_phase0/${d}_michelmann_master.jsonl outputs/eacl_phase0/${d}_michelmann_s5_eismv2 --axis "$a"' {}
+   ```
+2. **`--axis` 개별 실행은 `reset_matrix.jsonl`를 안 만든다**(전 축이 있을 때만 생성). 축 병렬이 끝나면 **문서별로 `--axis` 없이 full 패스 1회**(전부 캐시라 즉시) → carry-forward + reset_matrix 조립.
+3. **캐시/resume 안전**: 스크립트는 `{axis}_states.jsonl`의 기존 `item_id`를 읽어 이어가므로 **kill·재시작 손실 없음**. 프롬프트를 바꿨으면 해당 축 파일을 삭제 후 재추출(안 그러면 구 프롬프트 산출을 resume).
+4. **kill 은 PID로**(`kill <PID>`). `pkill -f "llm_s5_states"`는 **자기 명령줄까지 매치해 자폭**(exit 144)한다. 실제 프로세스 유무 확인도 pgrep 대신 **bracket 트릭**(`ps -eo pid,args | grep "s5_state[s].py" | grep -v grep`) + 파일 증가로 판별.
+5. 병렬 job도 배경 실행 + 10분 점검(위 § 규칙)은 그대로. 로그에서 error/traceback 유무를 함께 본다.
 
 ## Figure 저장 규칙 (최상위 강제 규칙, 2026-05-25)
 

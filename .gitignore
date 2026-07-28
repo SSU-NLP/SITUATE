@@ -124,3 +124,26 @@ outputs/experiments/*/emb_*.pkl
 # nested embedding caches (any pkl/npy under experiment dirs)
 outputs/experiments/**/*.pkl
 outputs/experiments/**/*.npy
+
+# ── 2026-07-26 보강: 기존 depth-제한 규칙(*/, */*/)이 못 잡던 원자료 ──
+# 실험 원자료는 depth 무관하게 제외. track 대상은 REPORT.md / 분석 md / 러너 스크립트(.sh) /
+# 사람검증 웹도구(.html) 뿐 (CLAUDE.md § "산출물 / 실험 디렉토리 사용법" 5. git 정책).
+outputs/experiments/**/*.jsonl
+outputs/experiments/**/*.json
+outputs/experiments/**/*.npz
+outputs/experiments/**/*.pt
+outputs/experiments/**/*.csv
+outputs/experiments/**/*.txt
+outputs/experiments/**/cache/
+
+# EACL Phase 0/1 라벨링 원자료 — 4,000+ shard jsonl (~1.2GB). 재현은 scripts/eacl_phase0/ 로.
+# 공개 가능한 요약본은 archive/eacl_phase0_public_domain_proxy/ 에 별도 track.
+outputs/eacl_phase0/
+outputs/exp_typed/
+
+# external datasets (clone/download 기반, 재현가능 — push 제외)
+benchmarks/SHARE/
+benchmarks/EventRecall/
+
+# 쓰기권한 확인용 임시 파일
+.write_test

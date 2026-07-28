@@ -58,6 +58,131 @@
   - 모든 LLM-baseline segmenter 의 LLM 호출.
   - hyperparameter 가 아니라 *환경 호환성 플래그*.
 - **권장**: 외부 OpenAI-compatible endpoint (Crts / OpenRouter) 사용 시 *항상 켤 것*. 새 LLM-baseline script 작성 시 누락하지 않도록 기본 포함.
+- **예외 — S5 추출기(`llm_s5_states.py`)는 default reasoning ON**: frozen `p0s5-eism-v2` 는 deepseek-v4-pro 를
+  reasoning 켠 채 동결했다(그래서 temp0에서도 anchor 비결정 ~14%; D-B11 REPORT §4.1). 2026-07-23 추가된
+  **`--no-reasoning` 플래그**(`extra_body={"reasoning":{"enabled":False}}` 를 stage1·stage2 create 에 주입)는
+  "reasoning 끄면 결정성 잡히나" 실험 전용이며 **frozen config 아님**(default 미적용 = 기존 동작 불변).
+  라벨러 교체=측정도구 변경이라 켜서 쓰면 Gate C 재검증 대상(EACL/s5-eism-redesign-guide.md §6.2).
+  참고(2026-07-23 `/v1/models`): api.ssunlp 목록에 `deepseek-v4-pro` **미표시**(호출은 될 수 있음, 런타임 확인).
+  non-reasoning fallback 후보 = `deepseek-v3.2` · `deepseek-chat-v3.1`(DeepSeek V3 계열, reasoning 없음).
+
+---
+
+## 4b. deepseek-v4-pro 서빙 특성 — 레이턴시·504·병렬·no-reasoning 비용 (2026-07-23 실측)
+
+`api.ssunlp`(openrouter proxy)의 `openrouter/deepseek/deepseek-v4-pro` 대상 통제 프로브. **S5 추출·대량 LLM
+라벨링 병렬화 튜닝의 근거**. (원자료: 이 대화 프로브; RESULT `outputs/runs/2026-07-23_noreason/`.)
+
+- **긴 생성의 정체 = 인라인 reasoning(콜당 ~3500tok 고정), JSON 아님.** stage2 protagonist ×20 실측 out
+  **4339tok/67s(reasoning ON)**. batch 5/10/20 모두 out ~3500~4300tok로 **거의 고정**(사고세금이 콜당 고정)
+  → **batch 줄여도 출력·시간 안 줆 = 쪼개기 손해.** stage1(monkey 최장) out 4495tok/64s.
+- **`--no-reasoning` = 출력 −80%, 시간 4.5배↓ (877tok/14.8s, 20/20 정상).** 이 배포판은 분리형 reasoning
+  채널을 노출 안 함(`reasoning_content` 항상 None)이나, 무거운 구조화 라벨링에선 사고가 completion 토큰으로
+  잡혀 폭증 → 끄면 통째 제거. **긴생성 낮추는 압도적 1순위 레버.** (단문 프롬프트는 사고 미유발이라 −16%뿐 =
+  프롬프트 난이도 의존.) ⚠️ **라벨러 교체 = 측정도구 변경** → frozen 추출 금지, 새 버전은 Gate C 재검증 필요.
+- **504 = origin gateway timeout(≠ client timeout).** 조건 = `큐대기 + 생성시간 > gateway 한도`. 드라이버:
+  (1) 긴 생성(위 stage1·stage2 55~67s), (2) **공유 워커풀 큐 깊이**(랩 전체 부하), (3) 시간대. idle 시간대
+  (KST 00:50) 소출력 conc8도 http504 0건 → 재현은 부하 의존. 추출기의 6회 재시도+20~120s 백오프 = transient
+  504 드레인 대기 장치. client timeout(httpx 60~180s)과 층이 다름.
+- **병렬 스윗스팟 = 4.** 처리량(고정 ~150tok 출력): conc1 37tok/s → conc4 **145tok/s(4.3x)** → conc6 141(평평)
+  → conc8 90tok/s(wall 5→16s, **역효과·큐잉**). ⇒ CLAUDE.md `xargs -P4` 실측 검증. 긴출력이면 천장 더 낮음.
+- **cold-start ~20s.** idle 후 첫 콜이 warm(1.8s) 대비 10배+. 병렬 워커 워밍업하면 초반 지연 감소.
+- **입력 크기는 거의 무관**(~4k토큰 입력=2.6s). run-wall(nr1 23s vs nr2 253s, 동일 조건)은 백오프·부하에 지배
+  → **레이턴시 측정에 run-wall 쓰지 말 것**(순차 통제 프로브로).
+
+- **행동 영향**: (a) 대량 추출 병렬은 `-P4` 고정, batch는 크게 유지(작게 X). (b) 새 라벨러 버전에서 속도/504가
+  문제면 **no-reasoning 채택 검토**(Gate C 재검증 조건). (c) 레이턴시 벤치는 순차·warmup 후.
+- **한계**: 단일 엔드포인트·시간대 1회 측정. 시간대 효과·절대 처리량은 부하 의존이라 종단 데이터 필요. 방향(레버
+  우선순위·병렬 천장·504 메커니즘)은 견고.
+
+---
+
+## 4c. **동결: S5 base labeler = Qwen3.6-35B-A3B (no-thinking, 자체호스팅 vLLM)** (2026-07-24 결정·실측)
+
+프록시(deepseek) 504·부하 의존성 회피 위해 S5 추출기 base labeler 를 **자체호스팅 오픈모델로 동결**. 사용자
+지정(2026-07-24). 대량 확장(1만편급)·재현성의 기준 라벨러.
+
+- **모델/양자화**: `Qwen/Qwen3.6-35B-A3B`(총 35B / 활성 3B MoE, "30B급"이라 통칭하나 정식 35B-A3B), **fp8**.
+  1×A100 80GB. served-name `qwen36-35b`.
+- **기동(재현)**: `python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3.6-35B-A3B
+  --served-model-name qwen36-35b --quantization fp8 --max-model-len 16384 --gpu-memory-utilization 0.85
+  --port 8001 --no-enable-log-requests`. vLLM 0.25.1(`/root/vllm_pilot/venv`), HF 캐시 공유(CLAUDE.md).
+- **no-thinking 지정 = 요청 단위** `extra_body={"chat_template_kwargs":{"enable_thinking":False}}`
+  (`llm_s5_states.py --no-reasoning --engine vllm`). 이 모델 chat_template 은 `<think>` 태그 사용
+  (enable_thinking=False → 빈 `<think></think>` 프리필). **frozen = no-thinking.**
+- **thinking 을 쓰려면** 서버에 `--reasoning-parser qwen3` 추가 필수. **없으면 guided `json_schema` 가 첫 토큰부터
+  JSON 강제 → 추론 억제**(23tok, reasoning 없음). 파서 있으면 추론 후 guided JSON(콜당 ~1000~1500tok). (CONFIG_NAME=`qwen3`.)
+
+**동시성/KV 벽 (배치20 프롬프트, 실측 2026-07-24, KV풀 1,297,785 tok):**
+- **스케줄러 상한 `--max-num-seqs` 기본 256** = running 하드캡(초과분 waiting 큐잉). 모드 무관 공통.
+- **no-thinking KV 벽 ≈ 320 동시** (max_num_seqs 풀었을 때 running~320서 KV=100%+preemption 시작). 기본 256 하에선
+  KV 겨우 ~80%(여유) — 스케줄러 256 이 먼저 묶음. **시퀀스 ~2.5k tok(입력 지배).**
+- **thinking KV 벽 ≈ 256 동시** (256서 KV=100%+preemption). 추론이 시퀀스 ~1.25배 길게 만들어 KV 더 먹음.
+- 부팅 로그 "Maximum concurrency 79.21x"는 **최대길이 16384 시퀀스 가정치**일 뿐, 실제 짧은 시퀀스라 훨씬 위.
+
+**thinking 품질 판정 (100문장 human-verify, 격리조건):** 추론 순효과 **+4/100**(off격리86→think90), 근데 **축별
+불균등**(intent·causality +3 / space −2·protagonist −1, n=20/축이라 ±2=노이즈). **비용 토큰 ~40배·콜당 ~46초.**
+⇒ **thinking 미채택.** 가성비 없음(+4 위해 40배). (별건: 배치20 vs 1문장격리 = human 일치 +5 관측됐으나 run
+nondeterminism(~25~30% flip)과 교락 → 통제 테스트 전엔 "배치가 해롭다" 채택 금지. [[no-postresult-criterion-change]].)
+
+> 🔴 **정정 (2026-07-25):** 아래 §4b 의 "single-stream 완전결정" 및 "동시성을 낮추면 결정성 회복"은
+> **반증됨.** 동시성=1·완전 동일 요청 순차 8회에서 고유 출력 4종(항목 불일치 최대 16/20), 동시성
+> 1~64 곡선에서 라벨 일치 0.854/0.906/0.844/0.812/0.823/0.833/0.781 로 **절벽도 단조성도 없음.**
+> ⇒ 동시성 하향은 재현성을 사지 못하고 처리량만 잃는다(1 = 0.29 콜/s vs 64 = 4.14 콜/s). 대량 추출
+> **동시성 64 권장**(200은 포화·지연 2배). 완화책은 인프라가 아니라 **k=3 다중샘플**뿐.
+> 원인 미확정(fp8 / prefix-caching / MoE 라우팅). 상세 = `context/06-decision-log.md` 2026-07-25.
+
+- **처리량 실측 (2026-07-25, 배치20 stage-2, fp8, max-num-seqs 512):** 동시성 1 = 0.29 콜/s ·
+  16 = 1.27 · 64 = **4.14** · 200 = 6.01(지연 중앙값 32s = 큐잉 포화). 문장 처리량 @64 ≈ 83/s.
+
+- **행동 영향**: (a) 대량 추출은 **no-thinking + `--max-num-seqs 300`(운영점 ~280, 선점 여유)**. 요청 ~2초/turnover
+  빨라 처리량 높음. (b) 더 필요하면 **GPU 추가(KV 확장)만** 유효(같은 GPU 물리상한 ~320). (c) thinking 은 소규모
+  진단용만. (d) ⚠️ 라벨러/모드 교체 = 측정도구 변경 → frozen 추출 혼용 금지, 새 버전 Gate C 재검증(§4b 규칙 계승).
+- **한계**: 단일 GPU·1회 램프. tok/s 절대 처리량은 미정밀(램프 창<요청지연). 동시성 벽·모드 비교 방향은 견고.
+
+- **⚠️ Stage-1 비결정성 (2026-07-25 실측, 미해결·수용)**: story_lists(cast/locations/goals) 추출이 **temperature=0
+  greedy인데도 run-to-run 크게 변동**. obs_74140 stage1 5회: locations 17~44 (±30~50%), 고유 목록 5/5. 짧은
+  프롬프트는 완전 결정적(6/6)이나 **긴 prefill(255문장)+MoE(A3B) greedy의 커널 reduction-order 비결정성**이
+  긴 JSON 생성의 수많은 near-tie를 뒤집어 증폭. **시도한 fix 전부 실패**: 동시성=1(무효), `--no-enable-chunked-prefill
+  --no-enable-prefix-caching`(부분, 3/5 동일), `--enforce-eager`(무효). 진짜 fix=batch-invariant 커널은 vLLM 0.25.1에
+  flag로 없음. **행동 영향**: closed-choice 목록(space location·intent goal)이 run마다 달라 Stage-2 라벨·재현성에
+  영향. frozen stage0 run·human_sample 은 **단일 draw**임을 명시하고 사용(수용, decision-log 2026-07-25). 별개로
+  **causality 67%·protagonist 66% reset 발현율=포화**(경계 변별력 낮음) — space 14%·intent 10%·time 1.4%가 희소·변별적.
+- **🔧 운영 노트 (서버 재기동)**: vLLM 재시작 시 flashinfer 가 sampling 커널(top_k_mask_logits)을 **JIT 컴파일** →
+  `ninja` 빌드도구 필요. venv 바이너리 `/root/vllm_pilot/venv/bin/ninja`(pkg 1.13.0)를 **PATH 에 넣어 기동**
+  (`env PATH=/root/vllm_pilot/venv/bin:$PATH …`). 없으면 `FileNotFoundError: 'ninja'`로 engine init 실패. nvcc=CUDA 13.
+
+---
+
+## 5. Stage-0 코퍼스 전처리 — boilerplate strip(F) / 구분선 강제분할(G) (2026-07-25)
+
+- **무엇**: ①B 대표 코퍼스 master 의 서사 외 잡물 제거·장면경계 복원. 연산(40) — **DROP_HEAD**(문서 머리
+  front-matter 통삭제: PG 크레딧·저자 약력·풍자 title-page·섹션번호), **STRIP_PREFIX**(제목·바이라인(저자명)·
+  판본이 서사 첫 문장에 융합된 접두 제거), **DROP**(중간/뒤 순수 boilerplate: 크레딧·`Transcriber's Note`·
+  저작권 갱신 안내·서점 광고), **STRIP_SUFFIX**(`[Transcriber ...]` 접미), **SPLIT**(장면 구분선 `* * * * *`
+  분할·글리프 제거 → 분할점 transition = **gold scene boundary=1**; 구분선 = 저자 지정 장면경계). 12문서 고정이라
+  머리 front-matter 는 **문서별 명시 스펙(`HEAD_SPEC`)** — regex 추측보다 감사 가능. tally: DROP_HEAD 12 ·
+  STRIP_PREFIX 7 · DROP 9 · STRIP_SUFFIX 2 · SPLIT 10.
+- **어디**: `scripts/eacl_phase0/stage0_clean.py`. 입력 `outputs/eacl_phase0/repcorpus_master.jsonl`(원본 보존),
+  산출 `repcorpus_master_stage0.jsonl`. 감사 = `outputs/experiments/2026-07-22_gate1b_repcorpus/STAGE0_AUDIT.txt`
+  (전량 before/after). **동결 `split_sentences`(`build_narrative_pack`) 불변** — 문장화 *후처리*로만 적용해
+  frozen splitter 재현성 유지.
+- **왜**: `fetch_repcorpus.py`의 `strip_pg`는 PG 헤더/푸터만 제거 → 본문 내부 광고·구분선·크레딧이 추출 입력에
+  잔존. human-verify 오류의 일부가 이 잡물 유래(광고문에 protagonist 억지 배정, 구분선이 두 장면을 한 transition
+  에 융합)로 확정됨. 사전등록 시 예정한 Stage-0 prep 의 적용(결과 후 기준변경 아님, `[[no-postresult-criterion-change]]`).
+- **행동 영향**: (a) 정제본은 문장/transition 인덱스가 원본과 다름(2233→2222 tr). ⚠️ 인덱스 shift 로 **기존 라벨러
+  출력·human_sample 과 정렬 안 됨** → 정제본 측정에는 동결 라벨러 **재추출**(설정 동결·입력만 교체 = 동결 위반 아님,
+  `repcorpus_s5_q36_35b_v2_stage0`) + human_sample 재생성 필요. (b) **바이라인 저자명이 Stage-1 cast/protagonist
+  추출을 오염**시킬 수 있어(저자명이 등장인물化) 머리 front-matter 제거는 샘플 밖 라벨 품질에도 유효. (c) gold
+  boundary=1 은 **평가용**만(10개, 구분선 유래); method 에 경계 개수 미제공(deployable 규약).
+- **⚠️ 초판 미스코프 정정(2026-07-25)**: 초판(23연산)은 문서 머리 제목/바이라인/저자약력/풍자부제를 통째로 놓쳤다
+  (블런트 ALLCAPS 회피를 과하게 적용 → Twain title-page "THEN CLAWED BACK…"을 정상서사로 오판, 옛 verify #60 오염
+  재현). junk 분리집계 중 발견 → 전 12문서 머리 실사 후 완전판(40연산) 재작성. 교훈: front-matter 는 축 라벨(특히
+  Stage-1 cast)을 오염시키므로 ALLCAPS 오탐 회피보다 **문서별 narrative-start 명시**가 안전.
+- **한계**: `HEAD_SPEC`·STRIP 접두는 문서별 앵커 기반(이 12문서 고정 코퍼스 전용) — 코퍼스 재획득 시 재검증 필요.
+  DROP 서점광고는 ALLCAPS 상품군 시그니처 = obs_37511 전용. 규칙별 오탐은 감사본(`STAGE0_AUDIT.txt`)에서 전수
+  확인(잔여 divider/boilerplate = 0, 12문서 narrative-start 육안 확인). 라벨 품질 개선폭은 재추출 후 junk-유래 vs
+  실제 라벨오류 분리집계로 측정.
 
 ---
 
