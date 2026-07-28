@@ -216,7 +216,8 @@ def train_one(name: str, mono: bool, dyn: str | None, tr: list[int], va: list[in
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     model = FactoredSlot(slot_dim=args.slot_dim, mono=mono, pos_weight=pw,
-                         dynamics=dyn, pred_weight=args.pred_weight).to(dev)
+                         dynamics=dyn, pred_weight=args.pred_weight,
+                         pred_space=args.pred_space).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     rng = np.random.default_rng(args.seed)
     for ep in range(args.epochs):
@@ -268,6 +269,8 @@ def main() -> None:
     ap.add_argument("--dynamics", default="per_slot", choices=["none", "per_slot", "shared"],
                     help="registry §3 dynamics 열. M5=per_slot · M6=shared · none=Phase2 anchor-only")
     ap.add_argument("--pred-weight", type=float, default=1.0)
+    ap.add_argument("--pred-space", default="obs", choices=["obs", "slot", "both"],
+                    help="§4.6 Axis2. slot = slot-native(D3 [v1]) · obs = 768D 의미공간(누출 위험)")
     ap.add_argument("--models", default="M5,M4", help="쉼표 구분. M6 = factored + shared dynamics")
     args = ap.parse_args()
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -294,7 +297,8 @@ def main() -> None:
     #    (2026-07-28 사고: --split phase1_smoke 실행이 본 산출 results_seed0.json /
     #     M5_seed0.pt 를 덮어썼다. 파일명이 seed 로만 구분됐던 탓.)
     args.ns = ("" if args.split == "phase1" else f"_{args.split}") + \
-              ("" if dyn is None else f"_{dyn}")
+              ("" if dyn is None else f"_{dyn}") + \
+              ("" if args.pred_space == "obs" else f"_{args.pred_space}")
     # registry §3: M5 = factored + 축별 dynamics · M4 = monolithic + dynamics 1개 · M6 = factored + 공유
     SPEC = {"M5": (False, dyn), "M4": (True, dyn),
             "M6": (False, "shared" if dyn else None)}

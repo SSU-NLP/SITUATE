@@ -57,11 +57,21 @@ class FactoredSlot(nn.Module):
                  alpha: tuple = ALPHA, beta: float = 0.25, gamma: float = 0.05,
                  var_floor: float = 0.1, pos_weight: tuple | None = None,
                  d1: bool = True, bottleneck: int = 8, dropout: float = 0.4,
-                 dynamics: str | None = None, pred_weight: float = 1.0):
+                 dynamics: str | None = None, pred_weight: float = 1.0,
+                 pred_space: str = "obs"):
         super().__init__()
         self.mono = mono
         self.dynamics = dynamics
         self.pred_weight = pred_weight
+        # §4.6 Axis2 — 예측/비교를 어느 공간에서 하나
+        #   "obs"  : 공용 768D 의미공간 (기존 기본값). ⚠️ §Risks 의 "semantic-space prediction
+        #            re-importing IDM" 에 해당. 인과 churn 이 전 슬롯으로 새어나간다.
+        #   "slot" : **slot-native** — f_k 가 자기 슬롯의 다음 상태를 직접 예측(§4.6 D3 [v1]).
+        #            "causal churn is quarantined to the causal slot".
+        #   "both" : 둘 다 (등가중)
+        if pred_space not in ("obs", "slot", "both"):
+            raise ValueError(f"pred_space must be obs/slot/both, got {pred_space!r}")
+        self.pred_space = pred_space
         self.d1 = d1 and not mono   # D1 = per-axis extractor routing (codex 2026-07-15); mono uses full input
         self.n_slots = 1 if mono else 5
         self.slot_dim = slot_dim
@@ -212,8 +222,14 @@ class FactoredSlot(nn.Module):
         out = {"loss": loss, "change_logits": change_logits, "S": S, "l_collapse": l_collapse}
         # ── 자기지도 next-state 예측 (registry §3) ─────────────────────────────
         if self.dynamics is not None:
-            _, z_hat = self.predict_next(S)                      # [B,T-1,z_dim] = 기대
-            pred_err = ((z_hat - z[:, 1:]) ** 2).sum(-1)          # [B,T-1] = 오차
+            Sh, z_hat = self.predict_next(S)                     # 기대 (슬롯 / 관측 공간)
+            terms = []
+            if self.pred_space in ("obs", "both"):
+                terms.append(((z_hat - z[:, 1:]) ** 2).sum(-1))              # [B,T-1]
+            if self.pred_space in ("slot", "both"):
+                # §4.6 Axis2 — 슬롯별 자기 공간 예측오차를 슬롯에 대해 평균(축별 가중 없음)
+                terms.append(((Sh - S[:, 1:]) ** 2).sum(-1).mean(-1))        # [B,T-1]
+            pred_err = sum(terms) / len(terms)
             l_pred = (pred_err * trans_mask).sum() / tm_sum
             out["loss"] = loss + self.pred_weight * l_pred
             out["l_pred"] = l_pred
@@ -259,8 +275,13 @@ class FactoredSlot(nn.Module):
         loss = loss + self.gamma * l_collapse
         out = {"loss": loss, "change_logits": change_logits, "S": S, "l_collapse": l_collapse}
         if self.dynamics is not None:
-            _, z_hat = self.predict_next(S)              # [T-1, z_dim]
-            pred_err = ((z_hat - z[1:]) ** 2).sum(-1)    # [T-1]
+            Sh, z_hat = self.predict_next(S)
+            terms = []
+            if self.pred_space in ("obs", "both"):
+                terms.append(((z_hat - z[1:]) ** 2).sum(-1))                 # [T-1]
+            if self.pred_space in ("slot", "both"):
+                terms.append(((Sh - S[1:]) ** 2).sum(-1).mean(-1))           # [T-1]
+            pred_err = sum(terms) / len(terms)
             l_pred = pred_err.mean()
             out["loss"] = loss + self.pred_weight * l_pred
             out["l_pred"] = l_pred

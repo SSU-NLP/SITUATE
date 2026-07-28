@@ -103,7 +103,8 @@ def main() -> None:
         ck = torch.load(ckp, map_location=dev, weights_only=False)
         m = FactoredSlot(slot_dim=ck["args"]["slot_dim"], mono=mono,
                          pos_weight=ck["pos_weight"], dynamics=ck.get("dynamics"),
-                         pred_weight=ck["args"].get("pred_weight", 1.0)).to(dev)
+                         pred_weight=ck["args"].get("pred_weight", 1.0),
+                         pred_space=ck["args"].get("pred_space", "obs")).to(dev)
         m.load_state_dict(ck["state"])
         Xtr, Ytr = slot_feats(m, c, tr, dev, args.batch)
         Xva, Yva = slot_feats(m, c, va, dev, args.batch)

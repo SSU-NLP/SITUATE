@@ -194,7 +194,8 @@ def main() -> None:
     if ck.get("dynamics") is None:
         raise SystemExit("dynamics 없는 체크포인트 — f_k 가 없어 우도비를 계산할 수 없다.")
     model = FactoredSlot(slot_dim=ck["args"]["slot_dim"], mono=ck["mono"],
-                         pos_weight=ck["pos_weight"], dynamics=ck["dynamics"]).to(dev)
+                         pos_weight=ck["pos_weight"], dynamics=ck["dynamics"],
+                         pred_space=ck["args"].get("pred_space", "obs")).to(dev)
     model.load_state_dict(ck["state"])
 
     rng = np.random.default_rng(20260728)               # 학습과 동일 분할

@@ -120,3 +120,57 @@ def test_dynamics_adds_prediction_error_and_matches_batched():
         assert "pred_err" in o1 and o1["pred_err"].shape == (T - 1,)
         assert torch.allclose(o1["loss"], o2["loss"], atol=1e-5), dyn
         assert torch.allclose(o1["pred_err"], o2["pred_err"][0], atol=1e-5), dyn
+
+
+# ── §4.6 Axis2: slot-native 예측 공간 ─────────────────────────────────────────
+def _fixture(dyn="per_slot", space="obs", T=8):
+    torch.manual_seed(0)
+    m = FactoredSlot(slot_dim=16, mono=False, bottleneck=4, dynamics=dyn, pred_space=space)
+    m.eval()
+    torch.manual_seed(11)
+    z = torch.randn(T, 768)
+    z = z / z.norm(dim=-1, keepdim=True)
+    resets = torch.randint(0, 2, (T - 1, 5))
+    cols = list(STATE_AXES)
+    sm = torch.stack([torch.randint(0, STATE_AXES[a][1], (T,)) for a in cols], dim=1)
+    return m, z, resets, sm, cols, T
+
+
+def test_pred_space_default_is_obs():
+    """기본값 유지 = 기존 체크포인트/수치 재현."""
+    m = FactoredSlot(slot_dim=16, mono=False, bottleneck=4, dynamics="per_slot")
+    assert m.pred_space == "obs"
+
+
+def test_pred_space_slot_uses_slot_space_error():
+    """slot-native 면 pred_err 가 ‖Ŝ−S‖² 의 슬롯 평균과 일치해야 한다 (768D 항 미포함)."""
+    m, z, resets, sm, cols, T = _fixture(space="slot")
+    with torch.no_grad():
+        S = m.encode_seq(z)
+        Sh, _ = m.predict_next(S)
+        expect = ((Sh - S[1:]) ** 2).sum(-1).mean(-1)
+        out = m(z, resets, {STATE_AXES[a][0]: sm[:, i] for i, a in enumerate(cols)})
+    assert torch.allclose(out["pred_err"], expect, atol=1e-5)
+
+
+def test_pred_space_variants_differ_and_batched_matches():
+    """obs / slot / both 가 서로 다른 loss 를 주고, 각각 배치 경로와 일치."""
+    losses = {}
+    for space in ("obs", "slot", "both"):
+        m, z, resets, sm, cols, T = _fixture(space=space)
+        with torch.no_grad():
+            o1 = m(z, resets, {STATE_AXES[a][0]: sm[:, i] for i, a in enumerate(cols)})
+            o2 = m.forward_batched(z.unsqueeze(0), resets.unsqueeze(0), sm.unsqueeze(0),
+                                   torch.ones(1, T), torch.ones(1, T - 1))
+        assert torch.allclose(o1["loss"], o2["loss"], atol=1e-5), space
+        losses[space] = float(o1["loss"])
+    assert losses["obs"] != losses["slot"]
+    assert min(losses["obs"], losses["slot"]) <= losses["both"] <= max(losses["obs"], losses["slot"]) + 1e-4
+
+
+def test_pred_space_invalid_raises():
+    try:
+        FactoredSlot(slot_dim=8, dynamics="per_slot", pred_space="nope")
+    except ValueError:
+        return
+    raise AssertionError("잘못된 pred_space 가 통과됨")
