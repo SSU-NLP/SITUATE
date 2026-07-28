@@ -2888,3 +2888,56 @@ Zacks-halo · 반사실 창 · aspect 전이 · 의도사슬 인접전이 · 의
 
 ### causality 최종 처리 (변경 없음, D-B21 결과절 재확인)
 **탐색적 약축으로 보고 + 해당 축을 제외한 민감도 분석 병기**(codex 권고).
+
+### D-B22 사후 감사 — 🔑 **모델이 아니라 가설이 틀렸다** (2026-07-28)
+
+사용자 요청("왜 이렇게 낮은가")에 따른 원인 규명. **규칙을 고치지 않았고, 재검정하지 않았다.**
+
+#### ① 모델은 정확하다 — 오라벨이 아니다
+`attainment` 로 라벨된 문장 전수 확인(pieman 1 · tunnel 8 · monkey 9):
+*"PETA lost that case"* · *"Burckhardt, I've killed him"* · *"they'd reached a settlement"* ·
+*"Dhuey finally gets his wish to make a monkey joke in court"* · *"I found a way to get in too"*.
+**전부 진짜 달성/완결이다.** 모델이 놓치거나 잘못 붙인 게 아니다.
+
+#### ② `attainment` 가 드문 것은 텍스트의 사실이다
+발화율 pieman 0.010 · tunnel 0.016 · monkey 0.022. 서사에서 **"의도한 것이 명시적으로 달성됐다"고
+선언하는 문장은 원래 1~2%** 다. 대부분의 서사는 달성을 명시하지 않고 넘어간다.
+
+#### ③ 🔴 결정적 — **gold 경계 직전에 `attainment` 가 0건**
+| 문서 | 경계 직전 역할 분포 |
+|---|---|
+| pieman (18) | outside 9 · execution 7 · commitment 2 · **attainment 0** |
+| tunnel (18) | outside 10 · execution 4 · commitment 4 · **attainment 0** |
+| monkey (30) | **outside 24** · execution 4 · commitment 2 · **attainment 0** |
+
+**gold 경계 66개 중 직전이 `attainment` 인 경우 = 0.** A2 는 `attainment` 를 **유일한 trigger** 로
+쓰는데, 사람이 경계라고 느낀 자리에는 그것이 하나도 없다. 리셋 개수가 attainment 개수와 정확히
+일치한 것(pieman 1=1 · monkey 9=9)이 이 구조를 그대로 보여준다.
+
+#### ④ 실제 경계는 **서술 모드 전환**에서 온다
+```
+monkey 경계 17: commitment("There was one shot David really wanted to get.")
+              → outside_chain("A full face portrait with a wide angle lens.")
+monkey 경계 40: execution("I had monkeys on my back, whilst I'm trying to keep my camera…")
+              → outside_chain("And all of a sudden, I heard the camera going off.")
+```
+경계 직전이 `outside_chain` 인 비율이 monkey 24/30 · tunnel 10/18 · pieman 9/18.
+**사람은 사슬이 *완결*될 때가 아니라 서술이 *배경·묘사로 전환*될 때 경계를 느낀다.**
+
+### ⇒ 판정 — 규칙 조정으로 풀 문제가 아니다
+**A2 가 정확히 반대 방향이었다.** `outside_chain` 을 "결측이니 투명하게 넘긴다"고 했으나,
+데이터는 **`outside_chain` 자체가 경계 신호**라고 말한다. D-B22 원안(0.380)은 신호를 갖고 있었으나
+과발화했고, A2 는 **신호 자체를 제거**했다.
+
+**가설의 전제가 dev-3 에서 성립하지 않는다:** *"결정→행동→완료 사슬의 **완결** = 사건 경계"* 가
+아니라, 경계는 **서술 모드 전환**에서 온다. 이는 리셋 규칙의 파라미터 문제가 아니라
+**조작화가 겨눈 대상 자체가 틀린 것**이다.
+
+### 폐기 유지 + 남는 자산
+- **D-B22 폐기 유지.** 규칙을 고쳐 재검정하지 않는다(사후 감사는 원인 규명이지 조정이 아니다).
+- ✅ **라벨은 자산이다** — 문서 6편(PG 3 + dev-3 3)에서 분포 재현, schema 위반 0, 전수 감사에서
+  오라벨 0. **결정/행동/달성을 문장 단독(G2)으로 뽑는 것은 확실히 된다.**
+- 🔑 **새 관찰(다음 가설의 씨앗, 단 dev-3 에서 나왔으므로 확증 근거 아님):**
+  **`outside_chain` 밀도·전환이 경계와 상관**된다(monkey 경계 직전 24/30). 이는 "사슬 완결"이
+  아니라 **"서술 모드(장면 진행 vs 배경 서술) 전환"** 가설이며, **별도 가설 + 새 자료**로만
+  검정해야 한다. ⚠️ dev-3 에서 관찰됐으므로 dev-3 로 검정하면 순환이다.
