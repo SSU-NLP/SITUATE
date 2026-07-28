@@ -553,6 +553,42 @@ def _dac(role: str) -> tuple[bool, bool, bool]:
     return ("commitment" in role, "execution" in role, "attainment" in role)
 
 
+def chainrole_resets(states: list[dict]) -> list[int]:
+    """D-B22-A2 (승인된 단일 예외) — `outside_chain` 을 **투명한 ε-전이**로 두는 시퀀스 판정.
+
+    인접 쌍만으로는 표현할 수 없다(`outside -> role` 판단에 outside **이전** 역할이 필요).
+    따라서 문서 전체 상태열을 받아 전이별 리셋 [len-1] 을 돌려준다.
+
+        역할 r -> outside : 전이 없음, r 보존
+        outside -> outside: 전이 없음, 보존
+        outside -> 역할 s : 보존된 r -> s 를 적용
+        역할 r -> 역할 s  : r -> s 적용
+
+    역할 전이 규칙(7x7, A1 에서 `outside` 행·열만 제거)은 그대로:
+        reset = chain_entry(s) AND trigger(r)
+        chain_entry(s) = s 에 commitment 또는 execution 비트
+        trigger(r)     = r 에 attainment 비트   (outside 는 이제 trigger 가 아님)
+    문서 첫 비-outside 이전 구간은 `last_chain_role` 이 없으므로 **리셋 없음**.
+    길이 상한 N 은 두지 않는다(현 자료로 정하면 관측값 최적화 — codex 2026-07-28).
+
+    `raw_role` 은 변경하지 않는다. 이 함수는 유효 상태만 계산한다.
+    """
+    out: list[int] = []
+    last: str | None = None                       # 가장 최근 비-outside 역할
+    for i in range(1, len(states)):
+        cur = states[i]["intentional_chain_role"]
+        prev = states[i - 1]["intentional_chain_role"]
+        if prev != "outside_chain":
+            last = prev
+        if cur == "outside_chain" or last is None:
+            out.append(0)                          # 전이 없음 / 사슬 미개시
+            continue
+        _, _, pc = _dac(last)
+        cd, ca, _ = _dac(cur)
+        out.append(int((cd or ca) and pc))
+    return out
+
+
 def reset_chainrole(a: dict, b: dict) -> int:
     """D-B22-A1 사전등록 규칙 (100% 코드, G4). 리셋 = **새 의도 사슬로의 진입**.
 
