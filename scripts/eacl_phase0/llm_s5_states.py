@@ -554,16 +554,25 @@ def _dac(role: str) -> tuple[bool, bool, bool]:
 
 
 def reset_chainrole(a: dict, b: dict) -> int:
-    """D-B22 사전등록 규칙 (100% 코드, G4).
+    """D-B22-A1 사전등록 규칙 (100% 코드, G4). 리셋 = **새 의도 사슬로의 진입**.
 
-        reset = current.D OR (current.A AND NOT previous.A) OR (previous.C AND current.A)
+        chain_entry(cur) = cur 에 commitment 또는 execution 비트가 있음
+        trigger(prev)    = prev 가 outside_chain 이거나 attainment 비트를 가짐
+        reset = chain_entry(cur) AND trigger(prev)
 
-    ① 현재 문장에 결정이 있으면 리셋 ② 비실행 -> 실행 진입 ③ 달성 뒤 재실행.
+    ① outside_chain -> commitment/execution 계열 진입 ② attainment 포함 상태 뒤 재시작.
+    `attainment` 단독(현재)은 리셋이 아니며, 고립된 outside -> attainment 도 리셋이 아니다
+    (문맥 밖 결과 보고일 가능성 — codex: 이론적 선택, 불확실성 있음).
     `event_type` 은 이 규칙에서 완전히 배제한다(D-B21 에서 포화 원인으로 확인).
+
+    🔴 D-B22 원안(`cur.D OR (cur.A AND NOT prev.A) OR (prev.C AND cur.A)`)은 1차 스모크에서
+    발화율 0.380 (기준 0.02~0.15) 으로 실패해 교체됐다. dev-3 미개봉 상태에서의 의미론적 수정이다.
     """
-    _, pa, pc = _dac(a["intentional_chain_role"])
+    pd, pa, pc = _dac(a["intentional_chain_role"])
     cd, ca, _ = _dac(b["intentional_chain_role"])
-    return int(cd or (ca and not pa) or (pc and ca))
+    chain_entry = cd or ca
+    trigger = (not (pd or pa or pc)) or pc      # outside_chain 이거나 attainment 보유
+    return int(chain_entry and trigger)
 
 
 def reset_causality(a: dict, b: dict) -> int:
