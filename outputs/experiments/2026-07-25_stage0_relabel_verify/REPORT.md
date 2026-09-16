@@ -20,10 +20,25 @@
   중립비율·밀도bin 층화). 블라인드 sheet(모델 라벨 없음) + answer_key 분리. **새 표본 잡물 0 확인.**
 - **양식(사용자 지정 = 저번과 동일)**: 예/아니오 웹도구 `label_web.html`(`human_sample_webpage.py --mode
   yesno`) + 한국어 번역 + 맥락 gloss. 두 변형:
-  - **fresh 100** (`human_sample/`, 정제본 pool 재추출): https://claude.ai/code/artifact/6d39ce78-eaf2-49e4-b386-6411103c65cf
+  - **fresh 100** (`human_sample/`, 정제본 pool 재추출):
+    https://claude.ai/code/artifact/d1721de7-b0af-4a3b-a8e1-c6b612cfc31b
   - **matched 93** (`human_sample_matched/`, 사용자 지정): 저번 100문항과 **똑같은 문장·똑같은 순서**로
     재정렬하되 잡물 7(=N) 스킵 → 93. 번역은 옛것 재사용, 라벨은 stage0 기준. 빌더 `build_matched_sheet.py`.
-    Artifact: https://claude.ai/code/artifact/12595f82-2cb8-4294-9f93-c3ea6444e6c6 **← 라벨링 대상**
+    Artifact: https://claude.ai/code/artifact/b8228109-d647-40a5-83c4-76180352b540 **← 라벨링 대상**
+
+  🔴 **2026-08-04 재발행.** 최초 발행분(fresh `…/6d39ce78-…` · matched `…/12595f82-…`,
+  둘 다 2026-07-25 발행)은 서버에서 **삭제돼 열리지 않는다**(`artifact not found`). 원본
+  `label_web.html` 은 그대로 남아 있어 같은 파일을 다시 올린 것이며 내용은 동일하다.
+  URL 은 발행 즉시 여기 적는다 — 이번 유실이 기록 부재 때문이었다.
+
+  🔴 **matched 시트의 실제 문항 수는 97 이다**(93 아님). 문장 기준으로 최초 100문항과
+  일치하는 것이 93, 나머지 4 는 Stage-0 정제로 문장이 바뀐 것이다. 머리말의
+  "문항 1–100" 캡션도 생성기 고정문구라 실제 수와 다르다.
+
+  🔴 **localStorage 키가 최초 시트와 같다**(`eacl_gate1b_human_v20260723v2`). 저장은
+  `row_id` 단위이고 matched 시트는 최초 시트와 **row_id 34개를 공유**하므로, 같은 브라우저에서
+  최초 시트를 라벨링한 사람이 matched 를 열면 그 34문항이 **이미 채워진 채로 뜬다** =
+  블라인드 재검증이 깨진다. 다른 사람에게 돌리거나, 시크릿 창에서 열 것.
 - **채점 규약(동결)**: `human_sample/SCORING_RUBRIC.md` — 축별 model-wrong(✗) ≤ 20%. 결과 후 변경 금지.
 
 ## 2. junk 분리집계 (완료) — `JUNK_SEPARATION.md`

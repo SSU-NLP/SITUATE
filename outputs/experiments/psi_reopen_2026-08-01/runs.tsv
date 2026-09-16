@@ -1,0 +1,8 @@
+A_i2_psicummean_delta	--split phase1_i2 --psi cummean --head-feat delta
+B_i2_psiema_delta	--split phase1_i2 --psi ema --head-feat delta
+C_i2_psicummean_residsigned	--split phase1_i2 --psi cummean --head-feat resid_signed
+D_i2_nopsi_residsigned	--split phase1_i2 --psi none --head-feat resid_signed
+A_chainq_psicummean_delta	--split phase1_chainq_i2 --psi cummean --head-feat delta
+B_chainq_psiema_delta	--split phase1_chainq_i2 --psi ema --head-feat delta
+C_chainq_psicummean_residsigned	--split phase1_chainq_i2 --psi cummean --head-feat resid_signed
+D_chainq_nopsi_residsigned	--split phase1_chainq_i2 --psi none --head-feat resid_signed

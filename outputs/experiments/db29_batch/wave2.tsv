@@ -1,0 +1,4 @@
+Ψ	--models M5 --seed 0 --psi cummean
+Ψ	--models M5 --seed 1 --psi cummean
+Ψ	--models M5 --seed 0 --psi ema
+Ψ	--models M5 --seed 1 --psi ema

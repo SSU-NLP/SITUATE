@@ -1,0 +1,4 @@
+5	shared-in40_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 40 --seed 1
+6	shared-in40_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 40 --seed 2
+7	shared-in40_shared-dyn	--models M6 --dynamics shared --input-path shared_proj --shared-proj-dim 40 --seed 0
+8	shared-in40_shared-dyn	--models M6 --dynamics shared --input-path shared_proj --shared-proj-dim 40 --seed 1

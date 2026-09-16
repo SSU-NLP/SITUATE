@@ -1,0 +1,29 @@
+B	--models M5,M4 --seed 0 
+B	--models M5,M4 --seed 1 
+B	--models M5,M4 --seed 2 
+H	--models M5 --seed 0 --slot-dim 128 --bottleneck 16
+H	--models M5 --seed 1 --slot-dim 128 --bottleneck 16
+H	--models M5 --seed 0 --slot-dim 128 --bottleneck 32
+H	--models M5 --seed 1 --slot-dim 128 --bottleneck 32
+H	--models M5 --seed 0 --slot-dim 256 --bottleneck 16
+H	--models M5 --seed 1 --slot-dim 256 --bottleneck 16
+H	--models M5 --seed 0 --slot-dim 256 --bottleneck 32
+H	--models M5 --seed 1 --slot-dim 256 --bottleneck 32
+H	--models M5 --seed 0 --slot-dim 384 --bottleneck 16
+H	--models M5 --seed 1 --slot-dim 384 --bottleneck 16
+H	--models M5 --seed 0 --slot-dim 384 --bottleneck 32
+H	--models M5 --seed 1 --slot-dim 384 --bottleneck 32
+L	--models M5 --seed 0 --slot-dim 256 --bottleneck 16 --lr 1e-4 --epochs 8
+L	--models M5 --seed 1 --slot-dim 256 --bottleneck 16 --lr 1e-4 --epochs 8
+L	--models M5 --seed 0 --slot-dim 256 --bottleneck 16 --lr 1e-4 --epochs 16
+L	--models M5 --seed 1 --slot-dim 256 --bottleneck 16 --lr 1e-4 --epochs 16
+L	--models M5 --seed 0 --slot-dim 256 --bottleneck 16 --lr 3e-4 --epochs 8
+L	--models M5 --seed 1 --slot-dim 256 --bottleneck 16 --lr 3e-4 --epochs 8
+L	--models M5 --seed 0 --slot-dim 256 --bottleneck 16 --lr 3e-4 --epochs 16
+L	--models M5 --seed 1 --slot-dim 256 --bottleneck 16 --lr 3e-4 --epochs 16
+P	--models M5 --seed 0 --head-feat resid_signed
+P	--models M5 --seed 1 --head-feat resid_signed
+P	--models M5 --seed 0 --head-feat resid_sq
+P	--models M5 --seed 1 --head-feat resid_sq
+P	--models M5 --seed 0 --head-feat pred_centric
+P	--models M5 --seed 1 --head-feat pred_centric

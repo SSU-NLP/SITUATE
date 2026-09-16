@@ -1,0 +1,33 @@
+H	6	0	M5 0.4052	--models M5 --seed 0 --slot-dim 128 --bottleneck 32
+H	7	0	M5 0.4060	--models M5 --seed 1 --slot-dim 128 --bottleneck 32
+H	4	0	M5 0.4054	--models M5 --seed 0 --slot-dim 128 --bottleneck 16
+H	11	0	M5 0.4050	--models M5 --seed 1 --slot-dim 256 --bottleneck 32
+H	10	0	M5 0.4052	--models M5 --seed 0 --slot-dim 256 --bottleneck 32
+H	5	0	M5 0.4062	--models M5 --seed 1 --slot-dim 128 --bottleneck 16
+H	9	0	M5 0.4059	--models M5 --seed 1 --slot-dim 256 --bottleneck 16
+H	8	0	M5 0.4048	--models M5 --seed 0 --slot-dim 256 --bottleneck 16
+H	12	0	M5 0.4054	--models M5 --seed 0 --slot-dim 384 --bottleneck 16
+B	1	0	M5 0.4057 · M4 0.3980	--models M5,M4 --seed 0 
+B	3	0	M5 0.4058 · M4 0.4014	--models M5,M4 --seed 2 
+B	2	0	M5 0.4054 · M4 0.3982	--models M5,M4 --seed 1 
+H	14	0	M5 0.4072	--models M5 --seed 0 --slot-dim 384 --bottleneck 32
+L	16	0	M5 0.3996	--models M5 --seed 0 --slot-dim 256 --bottleneck 16 --lr 1e-4 --epochs 8
+L	17	0	M5 0.3983	--models M5 --seed 1 --slot-dim 256 --bottleneck 16 --lr 1e-4 --epochs 8
+H	13	0	M5 0.4059	--models M5 --seed 1 --slot-dim 384 --bottleneck 16
+H	15	0	M5 0.4069	--models M5 --seed 1 --slot-dim 384 --bottleneck 32
+L	21	0	M5 0.4059	--models M5 --seed 1 --slot-dim 256 --bottleneck 16 --lr 3e-4 --epochs 8
+L	20	0	M5 0.4048	--models M5 --seed 0 --slot-dim 256 --bottleneck 16 --lr 3e-4 --epochs 8
+L	18	0	M5 0.4032	--models M5 --seed 0 --slot-dim 256 --bottleneck 16 --lr 1e-4 --epochs 16
+L	19	0	M5 0.4054	--models M5 --seed 1 --slot-dim 256 --bottleneck 16 --lr 1e-4 --epochs 16
+P	29	0	M5 0.4044	--models M5 --seed 1 --head-feat pred_centric
+P	24	0	M5 0.4051	--models M5 --seed 0 --head-feat resid_signed
+P	27	0	M5 0.4062	--models M5 --seed 1 --head-feat resid_sq
+P	25	0	M5 0.4052	--models M5 --seed 1 --head-feat resid_signed
+P	28	0	M5 0.4060	--models M5 --seed 0 --head-feat pred_centric
+P	26	0	M5 0.4044	--models M5 --seed 0 --head-feat resid_sq
+L	22	0	M5 0.4081	--models M5 --seed 0 --slot-dim 256 --bottleneck 16 --lr 3e-4 --epochs 16
+L	23	0	M5 0.4046	--models M5 --seed 1 --slot-dim 256 --bottleneck 16 --lr 3e-4 --epochs 16
+Ψ	2	0	M5 0.4028	--models M5 --seed 1 --psi cummean
+Ψ	3	0	M5 0.4050	--models M5 --seed 0 --psi ema
+Ψ	4	0	M5 0.4038	--models M5 --seed 1 --psi ema
+Ψ	1	0	M5 0.4050	--models M5 --seed 0 --psi cummean

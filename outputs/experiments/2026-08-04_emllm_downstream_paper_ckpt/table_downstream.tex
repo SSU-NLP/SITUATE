@@ -1,0 +1,21 @@
+\begin{table*}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\caption{Downstream memory performance on LongBench (15 tasks, 3{,}550 instances, Llama-3.1-8B-Instruct, EM-LLM without similarity refinement). The segmenter is the only variable: every arm shares the same model, prompts and memory budget ($n_{\text{init}}{=}128$, $n_{\text{local}}{=}n_{\text{mem}}{=}4096$, max block $128$). Hi-OnTop arms use the same online adaptive threshold as Table~\ref{tab:per-work}. $\Delta$ is against EM-LLM$_S$. Best per column in bold.}
+\label{tab:downstream}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}l r r rrrrrrrrrrrrrrr@{}}
+\toprule
+Segmenter & Avg & $\Delta$ & NarrQA & Qasper & MFQA & Hotpot & 2Wiki & MuSiQue & GovRep & QMSum & MultiNews & TREC & TriviaQA & SAMSum & PsgRet & LCC & RepoB \\
+\midrule
+EM-LLM$_S$ (surprisal) & 51.71 & +0.00 & 25.72 & 45.17 & 52.29 & \textbf{53.71} & \textbf{47.76} & \textbf{25.71} & 34.93 & 24.18 & 27.90 & 72.00 & 91.92 & 43.68 & \textbf{99.50} & 67.22 & 63.93 \\
+Hi-OnTop M5 (earlier checkpoint) & \textbf{51.77} & +0.06 & \textbf{27.51} & 45.27 & 52.75 & 53.05 & 47.03 & 25.10 & \textbf{35.20} & 24.37 & 27.88 & \textbf{73.00} & 91.92 & \textbf{43.78} & 97.50 & \textbf{67.41} & \textbf{64.71} \\
+Random (matched count) & 51.36 & -0.34 & 25.79 & \textbf{45.38} & \textbf{52.99} & 52.94 & 45.75 & 24.09 & 34.85 & \textbf{24.58} & 27.86 & 71.50 & \textbf{92.16} & 43.32 & 98.00 & 67.07 & 64.18 \\
+Every sentence boundary & 51.32 & -0.39 & 25.64 & 45.03 & 52.28 & 53.36 & 45.82 & 22.53 & 34.69 & 24.52 & \textbf{27.99} & 72.00 & 91.84 & 43.59 & 98.50 & 67.28 & 64.70 \\
+Hi-OnTop M5 & 51.47 & -0.24 & 27.04 & 45.03 & 51.79 & 52.60 & 47.43 & 23.86 & 34.91 & 24.21 & 27.84 & 72.50 & 91.99 & 43.77 & 97.50 & 67.16 & 64.38 \\
+Hi-OnTop M4 & 51.48 & -0.23 & 26.14 & 45.26 & 52.24 & 52.70 & 47.30 & 24.75 & 34.86 & 24.45 & 27.89 & 71.50 & \textbf{92.16} & 43.59 & 97.50 & 67.25 & 64.56 \\
+Hi-OnTop M8 & 51.37 & -0.34 & 26.18 & 44.70 & 52.23 & 51.67 & 46.60 & 25.00 & 35.04 & 24.53 & 27.92 & 72.50 & 91.92 & 43.43 & 97.50 & 67.30 & 64.05 \\
+\bottomrule
+\end{tabular}}
+\end{table*}

@@ -1,0 +1,10 @@
+BASE_i2_nopsi_delta_book	0	0.4020	981s	--split phase1_i2 --group-split book --psi none --head-feat delta
+D_i2_nopsi_residsigned_book	0	0.3997	1024s	--split phase1_i2 --group-split book --psi none --head-feat resid_signed
+D_chainq_nopsi_residsigned_book	0	0.3423	1037s	--split phase1_chainq_i2 --group-split book --psi none --head-feat resid_signed
+BASE_chainq_nopsi_delta_book	0	0.3378	1044s	--split phase1_chainq_i2 --group-split book --psi none --head-feat delta
+A_chainq_psicummean_delta_book	0	0.3298	1108s	--split phase1_chainq_i2 --group-split book --psi cummean --head-feat delta
+B_chainq_psiema_delta_book	0	0.3361	1152s	--split phase1_chainq_i2 --group-split book --psi ema --head-feat delta
+A_i2_psicummean_delta_book	0	0.4052	1198s	--split phase1_i2 --group-split book --psi cummean --head-feat delta
+B_i2_psiema_delta_book	0	0.4022	1207s	--split phase1_i2 --group-split book --psi ema --head-feat delta
+C_chainq_psicummean_residsigned_book	0	0.3352	1228s	--split phase1_chainq_i2 --group-split book --psi cummean --head-feat resid_signed
+C_i2_psicummean_residsigned_book	0	0.4042	1263s	--split phase1_i2 --group-split book --psi cummean --head-feat resid_signed

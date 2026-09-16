@@ -1,0 +1,4 @@
+9	hybrid3	--models M5 --tagger hybrid --tagger-axes 3 --seed 2
+10	hybrid5	--models M5 --tagger hybrid --tagger-axes 5 --seed 0
+11	hybrid5	--models M5 --tagger hybrid --tagger-axes 5 --seed 1
+12	hybrid5	--models M5 --tagger hybrid --tagger-axes 5 --seed 2

@@ -1,0 +1,12 @@
+axis-in_shared-dyn	--models M6 --dynamics shared --seed 0
+axis-in_shared-dyn	--models M6 --dynamics shared --seed 1
+axis-in_shared-dyn	--models M6 --dynamics shared --seed 2
+shared-in40_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 40 --seed 0
+shared-in40_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 40 --seed 1
+shared-in40_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 40 --seed 2
+shared-in40_shared-dyn	--models M6 --dynamics shared --input-path shared_proj --shared-proj-dim 40 --seed 0
+shared-in40_shared-dyn	--models M6 --dynamics shared --input-path shared_proj --shared-proj-dim 40 --seed 1
+shared-in40_shared-dyn	--models M6 --dynamics shared --input-path shared_proj --shared-proj-dim 40 --seed 2
+shared-in128_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 128 --seed 0
+shared-in128_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 128 --seed 1
+shared-in128_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 128 --seed 2

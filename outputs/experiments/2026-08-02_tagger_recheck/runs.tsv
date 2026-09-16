@@ -1,0 +1,12 @@
+TAG5_i2_s0	--split phase1_i2 --group-split book --tagger hybrid --tagger-axes 5 --seed 0
+TAG5_i2_s1	--split phase1_i2 --group-split book --tagger hybrid --tagger-axes 5 --seed 1
+TAG5_i2_s2	--split phase1_i2 --group-split book --tagger hybrid --tagger-axes 5 --seed 2
+TAG3_i2_s0	--split phase1_i2 --group-split book --tagger hybrid --tagger-axes 3 --seed 0
+TAG3_i2_s1	--split phase1_i2 --group-split book --tagger hybrid --tagger-axes 3 --seed 1
+TAG3_i2_s2	--split phase1_i2 --group-split book --tagger hybrid --tagger-axes 3 --seed 2
+TAG5_chainq_i2_s0	--split phase1_chainq_i2 --group-split book --tagger hybrid --tagger-axes 5 --seed 0
+TAG5_chainq_i2_s1	--split phase1_chainq_i2 --group-split book --tagger hybrid --tagger-axes 5 --seed 1
+TAG5_chainq_i2_s2	--split phase1_chainq_i2 --group-split book --tagger hybrid --tagger-axes 5 --seed 2
+TAG3_chainq_i2_s0	--split phase1_chainq_i2 --group-split book --tagger hybrid --tagger-axes 3 --seed 0
+TAG3_chainq_i2_s1	--split phase1_chainq_i2 --group-split book --tagger hybrid --tagger-axes 3 --seed 1
+TAG3_chainq_i2_s2	--split phase1_chainq_i2 --group-split book --tagger hybrid --tagger-axes 3 --seed 2
