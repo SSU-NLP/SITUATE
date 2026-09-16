@@ -12,13 +12,17 @@
 # 검출: Stage-1 이 성공하면 {OUT}/{doc}/story_lists.json 이 생긴다. 실패 후 "샤드 순서상 아직
 # story_lists.json 이 없는 첫 문서" = 방금 죽인 문서. 그것을 샤드에서 제거하고 재시도한다.
 set -u
-cd /root/Hi-OnTop
+# 로컬(=/root/Hi-OnTop, .venv)과 VESSL 컨테이너(=$STAGE/code, 시스템 python) 양쪽에서 돈다.
+# 하드코딩하면 컨테이너에서 `No such file or directory` 로 전 태스크가 즉시 실패한다(2026-08-03 실측).
+REPO_ROOT="${REPO_ROOT:-/root/Hi-OnTop}"
+cd "$REPO_ROOT" 
 SHARD="${1:?usage: resilient_shard.sh <shard.jsonl> <axis> <out> [max_skips]}"
 AXIS="${2:?}"
 OUT="${3:?}"
 MAXSKIP="${4:-20}"
 BASEURL="${5:-http://localhost:8001/v1}"
-PY=/root/Hi-OnTop/.venv/bin/python
+PY="${PY:-$REPO_ROOT/.venv/bin/python}"
+[ -x "$PY" ] || PY=$(command -v python3 || command -v python)
 COMMON="--model qwen36-35b --engine vllm --no-reasoning \
 --base-url $BASEURL --prompt-version v3.1 --stage1-max-tokens 8000"
 NAME=$(basename "$SHARD" .jsonl)

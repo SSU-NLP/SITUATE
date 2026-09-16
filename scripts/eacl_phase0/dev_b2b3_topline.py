@@ -48,14 +48,14 @@ def adaptive(sig, c):
 def count_pred(sig, t): return [i + 1 for i, v in enumerate(sig) if v >= t]
 
 
-def b2b3_boundaries(c, story, sents, reps, temp, workers):
+def b2b3_boundaries(c, story, sents, reps, temp, workers, model=GOLD_MODEL, **kw):
     """GPT-4.1 direct segmentation, R reps, B3 top-n consensus -> boundary transitions."""
     orig = len(WORD.findall(story))
     def one():
         for _ in range(6):
             try:
-                r = c.chat.completions.create(model=GOLD_MODEL, temperature=temp, max_tokens=32000,
-                    timeout=300, messages=[{"role": "user", "content": PROMPT_HEAD + story + PROMPT_TAIL}])
+                r = c.chat.completions.create(model=model, temperature=temp, max_tokens=32000,
+                    timeout=600, messages=[{"role": "user", "content": PROMPT_HEAD + story + PROMPT_TAIL}], **kw)
             except Exception:
                 continue
             out = r.choices[0].message.content or ""
@@ -77,8 +77,15 @@ def main():
     ap.add_argument("--reps", type=int, default=20)
     ap.add_argument("--temp", type=float, default=0.0)
     ap.add_argument("--workers", type=int, default=2)
+    # 🔴 모델만 교체 가능하게 (B3 절차·프롬프트는 불변). GOLD_MODEL(gpt-4.1) 이 기존 0.474 의 출처.
+    ap.add_argument("--model", default=GOLD_MODEL)
+    # 🔴 M3/M1/B1 비교칸은 S5 축 이름이 v3.1 에서 바뀌어 stale 이다(KeyError). topline 만 필요하면 켠다.
+    ap.add_argument("--b3-only", action="store_true", help="B2/B3 topline 만 산출")
+    ap.add_argument("--reasoning-effort", default="", help="GPT-5 계열용. 빈 값이면 안 보냄")
     args = ap.parse_args()
     c = client()
+    print(f"[model] {args.model} · reps={args.reps} · temp={args.temp}"
+          f"{' · reasoning='+args.reasoning_effort if args.reasoning_effort else ''}", flush=True)
     print(f"{'doc':8s} | {'B2/B3(topline)':>14s} {'M3-S5':>7s} {'M1-Cos':>7s} {'B1':>7s}  (vs HUMAN gold)")
     agg = {k: [] for k in ["B2B3", "M3", "M1", "B1"]}
     for name, (mp, rmp, b1p) in DEV.items():
@@ -88,8 +95,16 @@ def main():
         sents = [rows[0]["previous"], *[r["current"] for r in rows]]
         story = re.sub(r"\s+", " ", " ".join(sents)).strip()
         # B2/B3 topline
-        b2b3 = b2b3_boundaries(c, story, sents, args.reps, args.temp, args.workers)
+        kw = {"reasoning_effort": args.reasoning_effort} if args.reasoning_effort else {}
+        b2b3 = b2b3_boundaries(c, story, sents, args.reps, args.temp, args.workers,
+                               model=args.model, **kw)
         # our methods
+        if args.b3_only:
+            s0 = score_dialogues([gold], [endturn(n, b2b3)])["score"]
+            agg["B2B3"].append(s0)
+            print(f"{name:8s} | {s0:14.3f} {'—':>7s} {'—':>7s} {'—':>7s}"
+                  f"   (경계 {len(b2b3)} / gold {sum(gold)})", flush=True)
+            continue
         rm = {int(r["transition"]): r for r in read(BASE / rmp)}
         cnt = [sum(int(rm[int(r["transition"])][a]) for a in AX) for r in rows]
         idm = [float(r["idm_score"]) for r in rows]
@@ -105,7 +120,8 @@ def main():
         }
         for k in agg: agg[k].append(sc[k])
         print(f"{name:8s} | {sc['B2B3']:14.3f} {sc['M3']:7.3f} {sc['M1']:7.3f} {sc['B1']:7.3f}")
-    print(f"{'MEAN':8s} | " + " ".join(f"{np.mean(agg[k]):.3f}" for k in ["B2B3", "M3", "M1", "B1"]).replace(" ", "          ", 0))
+    ks = ["B2B3"] if args.b3_only else ["B2B3", "M3", "M1", "B1"]
+    print(f"{'MEAN':8s} | " + "  ".join(f"{np.mean(agg[k]):.4f}" for k in ks))
     print("\nNote: B2/B3 = GPT-4.1 direct (offline, full-text) = TOPLINE; M1/M3/B1 = deployable LLM-free.")
 
 

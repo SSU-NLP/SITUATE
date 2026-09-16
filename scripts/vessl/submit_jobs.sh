@@ -20,11 +20,20 @@ IMAGE="${IMAGE:-quay.io/vessl-ai/torch@sha256:8bd418d49eeed841a607582b614c9d3ba8
 STAGE="${STAGE:-/shared/hiontop}"
 OUT_DIR="$STAGE/out/$RUN"
 CONC="${CONC:-130}"
+# 델타(cap20) 네임스페이스가 기본이다. `$STAGE/data/shards` 에는 **다른 코퍼스**의 구 샤드
+# 100개가 이름 체계까지 겹친 채 남아 있어(2026-08-03 확인: delta 에 없는 문서 1,829편),
+# 기본값을 그쪽으로 두면 조용히 엉뚱한 문서를 먹인다. 감독기가 인자 없이 부르므로 기본값으로 박는다.
+SHARD_DIR="${SHARD_DIR:-$STAGE/data/shards_delta_e}"
+WORKLIST="${WORKLIST:-$STAGE/worklist_delta_e.txt}"
+HEALTH_MIN="${HEALTH_MIN:-75}"
+JOB_SCRIPT="${JOB_SCRIPT:-$STAGE/job_shard.sh}"
 
 echo "=== 제출 계획 ==="
 printf '  job    : %s-shard{0..%d}\n' "$RUN" "$((N-1))"
 printf '  spec   : %s × %d\n' "$SPEC" "$N"
 printf '  볼륨   : %s → /shared\n' "$VOL"
+printf '  샤드   : %s (%s개)\n' "$SHARD_DIR" "$(ls "$SHARD_DIR"/*.jsonl 2>/dev/null | wc -l)"
+printf '  worklist: %s (%s줄)\n' "$WORKLIST" "$(grep -cvE '^\s*(#|$)' "$WORKLIST" 2>/dev/null || echo 0)"
 printf '  출력   : %s\n' "$OUT_DIR"
 printf '  비용   : $%.2f/시간\n' "$(awk -v n="$N" 'BEGIN{print n*1.55}')"
 echo
@@ -38,7 +47,8 @@ for i in $(seq 0 $((N-1))); do
        --working-dir "$STAGE/code"
        -e "SHARD_ID=$i" -e "NUM_SHARDS=$N"
        -e "OUT_DIR=$OUT_DIR" -e "STAGE=$STAGE" -e "CONC=$CONC"
-       --cmd "bash $STAGE/job_shard.sh")
+       -e "SHARD_DIR=$SHARD_DIR" -e "WORKLIST=$WORKLIST" -e "HEALTH_MIN=$HEALTH_MIN"
+       --cmd "bash $JOB_SCRIPT")
   if [ "$DRY_RUN" = "1" ]; then printf '%q ' "${cmd[@]}"; echo; echo
   else "${cmd[@]}" || echo "[FAIL] shard $i 제출 실패"
   fi

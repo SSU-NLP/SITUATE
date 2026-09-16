@@ -44,9 +44,15 @@ STATE_SPEC = [  # (출력열 이름, 축 파일, 필드, enum)
     ("event_type", "causality", "event_type", EVENT_TYPE),
 ]
 
-PHASE1_MASTER = REPO / "data/eacl_phase1/final_master.jsonl"
+# 🔒 2026-08-04 확정 = 인물키 상한 20 + ScANT 격리 재빌드 코퍼스의 통합 master.
+# 구 D-B15 앵커(10,598편)의 final_master.jsonl 은 재현이 필요할 때만 --master 로 지정한다.
+PHASE1_MASTER = REPO / "data/eacl_phase1/personkey_cap20_combined_master.jsonl"
 PHASE1_S5 = REPO / "outputs/eacl_phase0/phase1_all_v31"
+# 🔒 이 빌더는 frozen 축 인덱스(phase1__personkey)를 만든다. **I2 는 그 위에서**
+#    `recompute_axes.py --intent i2` 로 리셋 열만 재계산해 phase1__personkey_i2 를 얻는다
+#    (임베딩은 심볼릭 재사용, 재인코딩 0). 학습 기본 split 은 I2 쪽이다.
 DEV3 = ("pieman", "tunnel", "monkey")
+TEST3 = ("run", "gohitler", "mymotherslife")     # 🔒 봉인 시험지 (EventRecall, D-B62)
 
 
 def read_jsonl(p: Path):
@@ -78,14 +84,20 @@ def collect_docs(master: Path) -> tuple[list[str], list[list[str]], list[np.ndar
     return doc_ids, sents, [np.asarray(g, dtype=np.int8) for g in golds]
 
 
-def load_anchors(doc_ids: list[str], n_sent: list[int]) -> tuple[np.ndarray, np.ndarray, list[str]]:
-    """phase1_all_v31/ 에서 축별 reset(전이) + 전역 enum state(문장) 을 읽는다.
+def load_anchors(doc_ids: list[str], n_sent: list[int],
+                 src: Path | None = None) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """앵커 디렉터리에서 축별 reset(전이) + 전역 enum state(문장) 을 읽는다.
+
+    `src` 기본값 = `PHASE1_S5`(D-B15 Qwen 앵커). 라벨러가 다른 앵커를 쓰려면
+    `--anchor-dir` 로 넘긴다(D-B55). 🔴 **split 이름(`--tag`)을 반드시 함께 바꿔야**
+    산출이 겹치지 않는다 — 조건이 파일명에 드러나야 한다는 규약.
 
     반환 (resets [N_trans,5] int8, states [N_sent,3] int8, 제외된 doc_id 목록).
     상태 파일이 불완전한 문서는 통째로 제외한다(부분 라벨을 섞지 않는다).
     """
+    src = src or PHASE1_S5
     rm: dict[str, dict[int, list[int]]] = {}
-    for r in read_jsonl(PHASE1_S5 / "reset_matrix.jsonl"):
+    for r in read_jsonl(src / "reset_matrix.jsonl"):
         rm.setdefault(r["doc_id"], {})[int(r["transition"])] = [int(r[a]) for a in AXES]
 
     resets_parts, states_parts, dropped = [], [], []
@@ -98,7 +110,7 @@ def load_anchors(doc_ids: list[str], n_sent: list[int]) -> tuple[np.ndarray, np.
         S = np.zeros((n, len(STATE_SPEC)), dtype=np.int8)
         ok = True
         for ci, (_, axis, field, enum) in enumerate(STATE_SPEC):
-            p = PHASE1_S5 / doc / f"{axis}_states.jsonl"
+            p = src / doc / f"{axis}_states.jsonl"
             if not p.exists():
                 ok = False
                 break
@@ -140,7 +152,8 @@ def encode_to_memmap(all_sents: list[str], out_path: Path, batch: int, device: s
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--corpus", choices=["phase1", "dev3", "dts"], required=True)
+    ap.add_argument("--corpus", choices=["phase1", "dev3", "test3", "test3_goldauthor", "dts"],
+                    required=True)
     ap.add_argument("--dts-set", default="tiage",
                     choices=["tiage", "dialseg711", "superseg", "ami"])
     ap.add_argument("--dts-full", action="store_true",
@@ -149,19 +162,35 @@ def main() -> None:
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--limit-docs", type=int, default=0, help="스모크용: 앞 N개 문서만")
     ap.add_argument("--tag", default="", help="산출 파일명 접미사(스모크와 본 산출 분리)")
+    ap.add_argument("--master", default="",
+                    help="phase1 문장 소스 master. 미지정 시 final_master.jsonl(D-B15 앵커). "
+                         "앵커 코퍼스를 바꿀 때 --anchor-dir·--tag 와 함께 지정한다.")
+    ap.add_argument("--anchor-dir",
+                    default=str(REPO / "outputs/eacl_phase0/phase1_personkey_cap20"),
+                    help="앵커 소스 디렉터리(기본 = phase1_all_v31, D-B15 Qwen). 라벨러가 다른 "
+                         "앵커를 쓸 때 지정. 🔴 --tag 도 함께 바꿔 산출을 분리할 것.")
     args = ap.parse_args()
+    if args.anchor_dir and not args.tag:
+        raise SystemExit("🔴 --anchor-dir 를 쓰면 --tag 도 지정해야 한다 "
+                         "(다른 앵커의 산출이 기존 phase1_* 을 덮어쓴다).")
     OUT.mkdir(parents=True, exist_ok=True)
     split = (args.corpus if args.corpus != "dts"
              else (f"dts_full_{args.dts_set}" if args.dts_full else f"dts_{args.dts_set}")) \
             + (f"_{args.tag}" if args.tag else "")
 
     if args.corpus == "phase1":
-        print(f"[read] {PHASE1_MASTER}", flush=True)
-        doc_ids, sents, _ = collect_docs(PHASE1_MASTER)
-    elif args.corpus == "dev3":
+        mpath = Path(args.master) if args.master else PHASE1_MASTER
+        print(f"[read] {mpath}", flush=True)
+        doc_ids, sents, _ = collect_docs(mpath)
+    elif args.corpus in ("dev3", "test3", "test3_goldauthor"):
         doc_ids, sents, golds = [], [], []
-        for d in DEV3:
-            di, se, go = collect_docs(REPO / f"outputs/eacl_phase0/{d}_michelmann_master.jsonl")
+        if args.corpus == "dev3":
+            srcs = [REPO / f"outputs/eacl_phase0/{d}_michelmann_master.jsonl" for d in DEV3]
+        else:
+            tag = "goldauthor" if args.corpus.endswith("goldauthor") else "goldtopn"
+            srcs = [REPO / f"outputs/eacl_phase0/{d}_eventrecall_{tag}_master.jsonl" for d in TEST3]
+        for p in srcs:
+            di, se, go = collect_docs(p)
             doc_ids += di
             sents += se
             golds += go
@@ -182,8 +211,9 @@ def main() -> None:
     payload: dict[str, np.ndarray] = {}
 
     if args.corpus == "phase1":
-        print("[anchor] reset_matrix + 축별 state 파일 읽는 중...", flush=True)
-        resets_parts, states_parts, dropped = load_anchors(doc_ids, n_sent)
+        src = Path(args.anchor_dir) if args.anchor_dir else PHASE1_S5
+        print(f"[anchor] reset_matrix + 축별 state 파일 읽는 중... src={src}", flush=True)
+        resets_parts, states_parts, dropped = load_anchors(doc_ids, n_sent, src)
         if dropped:
             drop = set(dropped)
             keep_idx = [i for i, d in enumerate(doc_ids) if d not in drop]

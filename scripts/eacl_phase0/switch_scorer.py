@@ -76,7 +76,7 @@ def slot_states_and_pred(model, c: Corpus, idx: list[int], dev: str, bs: int, an
     model.eval()
     out: dict[int, tuple] = {}
     for chunk in batches(idx, c, bs):
-        z, rs, st, sm, tm, order = make_batch(c, chunk, dev, anchor)
+        z, rs, st, sm, tm, order, _ft = make_batch(c, chunk, dev, anchor)
         S = model.encode_seq_batched(z)                    # [B,T,n_slots,d]
         Sh, _ = model.predict_next(S)                      # [B,T-1,n_slots,d]
         for b, i in enumerate(order):

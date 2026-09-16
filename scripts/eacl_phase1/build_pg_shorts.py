@@ -36,6 +36,7 @@ from fetch_repcorpus import (EXCL_AUTH, EXCL_ID, UA, density, is_headingish,  # 
 
 CAT = REPO / "data/eacl_phase1/pgcat.csv"
 CACHE = REPO / "data/eacl_phase1/pg_cache"
+DOWNLOADS = REPO / "data/eacl_phase1/pg_downloads.json"   # {gutenberg_id(str): 누적 다운로드 수}
 # ⑥ 격리: QC 12편(repcorpus) gutenberg id + Tier2 id. 시험지(Born a Crime)는 PG 밖이라 id 충돌 없음.
 QC_IDS = {2429, 375, 1952, 1661, 74980, 3189}          # 유명 6 (fam_*)
 # 무명 6(obs_*)은 doc_id 가 gutenberg id 그대로다 → manifest 에서 읽어 합친다.
@@ -56,7 +57,23 @@ MIN_HEAD_WORDS = 2
 
 
 # ------------------------------------------------------------------ ① 후보
-def candidates(cat: Path, extra_excl: set[int]) -> list[dict]:
+DEV3_AUTH = ["Pohl, Frederik"]     # dev-3 tunnel 저자. pieman·monkey 는 PG 밖이라 id 충돌 없음
+
+# ④ 상한 면제: 저자 필드가 총칭이거나 편집자 크레딧뿐인 선집.
+# 이런 권의 각 편은 서로 다른 작가가 썼는데 카탈로그에는 편집자 한 명만 적혀 있다. 여기에 상한을
+# 걸면 `Various` 736편을 한 작가로 세어 잘라내게 되어, 상한이 막으려던 "한 작가의 문체 지배"와
+# 정반대로 코퍼스에서 가장 다양한 부분을 버린다.
+ANTH_PLACEHOLDER = re.compile(r"\b(various|anonymous|unknown|unidentified)\b", re.I)
+ANTH_EDITOR = re.compile(r"\[(editor|compiler|contributor)\]", re.I)
+
+
+def is_anthology(author: str) -> bool:
+    """저자 미상 선집인가 — 저자 필드 첫 항목이 총칭이거나 편집자 크레딧."""
+    first = author.split(";")[0]
+    return bool(ANTH_PLACEHOLDER.search(first) or ANTH_EDITOR.search(first))
+
+
+def candidates(cat: Path, extra_excl: set[int], excl_auth: list[str]) -> list[dict]:
     rows = list(csv.DictReader(cat.open(encoding="utf-8")))
     out = []
     for r in rows:
@@ -65,9 +82,9 @@ def candidates(cat: Path, extra_excl: set[int]) -> list[dict]:
         if "short stories" not in r.get("Subjects", "").lower():
             continue
         gid = int(r["Text#"])
-        if gid in EXCL_ID or gid in extra_excl:            # ⑥
+        if gid in extra_excl:                              # ⑥
             continue
-        if any(a in r.get("Authors", "") for a in EXCL_AUTH):   # ⑥
+        if any(a in r.get("Authors", "") for a in excl_auth):   # ⑥
             continue
         out.append({"gid": gid, "title": r.get("Title", ""), "author": r.get("Authors", ""),
                     "subjects": r.get("Subjects", ""), "issued": r.get("Issued", ""),
@@ -184,29 +201,53 @@ def main() -> None:
     ap.add_argument("--max-sent", type=int, default=700)
     ap.add_argument("--min-median-words", type=float, default=5.0,
                     help="문장 중앙 어휘수 하한 — 서지/목록 잔재 배제(스모크: 잡물 1.0 vs 본문 11+)")
+    ap.add_argument("--isolate", choices=["legacy", "dev3"], default="legacy",
+                    help="legacy = 예비 점검 12편·Tier2·유명 저자 14인·명작 앤솔로지 전부 제외. "
+                         "dev3 = 평가셋(dev-3) 저자만 제외 — Tier2 의 held-out 지위가 D-M13 에서 "
+                         "폐기됐으므로 나머지를 학습에서 뺄 이유가 없다")
+    ap.add_argument("--exclude-download-pct", type=float, default=0.0,
+                    help="다운로드 수 상위 (100-P)%% 권 제외. 90 이면 90분위 이상 제외(0=끄기). "
+                         "LLM 이 널리 읽힌 작품의 줄거리를 외운 채 라벨을 다는 위험을 줄인다")
     ap.add_argument("--max-volumes", type=int, default=0, help="권 수 상한(0=무제한, 스모크용)")
     ap.add_argument("--delay", type=float, default=0.5, help="PG 요청 간 대기(초)")
     ap.add_argument("--out", type=Path, default=REPO / "data/eacl_phase1/pg_shorts.jsonl")
     ap.add_argument("--manifest", type=Path, default=REPO / "data/eacl_phase1/pg_shorts_manifest.json")
     a = ap.parse_args()
 
-    # ⑥ 무명 6편 id 를 repcorpus manifest 에서 회수해 격리 목록에 추가
-    extra = set()
-    mf = REPO / "outputs/experiments/2026-07-22_gate1b_repcorpus/manifest.json"
-    if mf.exists():
-        try:
-            m = json.loads(mf.read_text())
-            for d in (m if isinstance(m, list) else m.get("docs", [])):
-                g = d.get("gutenberg_id")
-                if g:
-                    extra.add(int(g))
-        except Exception:
-            pass
-    extra |= QC_IDS
-    print(f"[⑥ 격리] 제외 id {len(extra | EXCL_ID)}개 · 제외 작가 {len(EXCL_AUTH)}명", flush=True)
+    # ⑥ 격리
+    extra: set[int] = set()
+    excl_auth = DEV3_AUTH
+    if a.isolate == "legacy":
+        # 무명 6편 id 를 repcorpus manifest 에서 회수해 격리 목록에 추가
+        mf = REPO / "outputs/experiments/2026-07-22_gate1b_repcorpus/manifest.json"
+        if mf.exists():
+            try:
+                m = json.loads(mf.read_text())
+                for d in (m if isinstance(m, list) else m.get("docs", [])):
+                    g = d.get("gutenberg_id")
+                    if g:
+                        extra.add(int(g))
+            except Exception:
+                pass
+        extra |= QC_IDS | EXCL_ID
+        excl_auth = EXCL_AUTH
+    print(f"[⑥ 격리 {a.isolate}] 제외 id {len(extra)}개 · 제외 작가 {len(excl_auth)}명 {excl_auth}",
+          flush=True)
 
-    cands = candidates(CAT, extra)
+    cands = candidates(CAT, extra, excl_auth)
     print(f"[① 후보] {len(cands)} 권", flush=True)
+
+    dl_cut = None
+    if a.exclude_download_pct:
+        # 분위는 **후보 권 집합** 위에서 정의한다(편 분할 전이라 편 가중은 계산 불가).
+        dl = json.loads(DOWNLOADS.read_text())
+        have = [dl[str(c["gid"])] for c in cands if str(c["gid"]) in dl]
+        import numpy as np
+        dl_cut = float(np.percentile(have, a.exclude_download_pct))
+        before = len(cands)
+        cands = [c for c in cands if dl.get(str(c["gid"]), 0) < dl_cut]
+        print(f"[다운로드 필터] {a.exclude_download_pct:.0f}분위 = {dl_cut:,.0f}회 이상 제외 · "
+              f"{before} → {len(cands)} 권 (-{before - len(cands)})", flush=True)
     if a.max_volumes:
         cands = cands[:a.max_volumes]
 
@@ -217,7 +258,8 @@ def main() -> None:
     for vi, c in enumerate(cands):
         if len(rows) >= a.target:
             break
-        if per_author[c["author"]] >= a.per_author:      # ④ 권 단위 조기 스킵
+        anth = is_anthology(c["author"])                 # ④ 선집은 상한 면제
+        if not anth and per_author[c["author"]] >= a.per_author:   # ④ 권 단위 조기 스킵
             stats["skip_author_cap"] += 1
             continue
         txt = fetch(c["gid"], a.delay)
@@ -231,7 +273,7 @@ def main() -> None:
         for pi, (title, body) in enumerate(pieces):
             if len(rows) >= a.target:
                 break
-            if per_author[c["author"]] >= a.per_author:   # ④
+            if not anth and per_author[c["author"]] >= a.per_author:   # ④
                 stats["skip_author_cap_piece"] += 1
                 continue
             key = (c["author"], title.upper())
@@ -260,7 +302,10 @@ def main() -> None:
                 "n_sent": len(sents), "dialogue_density": round(d, 4),
                 "register": register(sents)[0], "stage0_ops": ops, "sentences": sents,
             })
-            per_author[c["author"]] += 1
+            if anth:
+                stats["anthology_exempt"] += 1
+            else:
+                per_author[c["author"]] += 1
             seen_titles.add(key)
         if vi % 25 == 0:
             print(f"  권 {vi}/{len(cands)}  편 {len(rows)}/{a.target}  "
@@ -272,6 +317,8 @@ def main() -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     man = {"n_pieces": len(rows), "n_authors": len(per_author),
            "per_author_cap": a.per_author, "len_range": [a.min_sent, a.max_sent],
+           "exclude_download_pct": a.exclude_download_pct, "download_cut": dl_cut,
+           "isolate": a.isolate,
            "stats": dict(stats),
            "sent_total": sum(r["n_sent"] for r in rows),
            "min_median_words": a.min_median_words,

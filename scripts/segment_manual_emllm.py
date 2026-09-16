@@ -118,8 +118,16 @@ def read_sentences(path: str) -> list[str]:
 
 
 @torch.no_grad()
-def encode_doc(sents, tok, model, device, sep="\n", refine_from_layer=0):
-    """단일 forward pass → (문장 surprise[N], 문장 대표key로 만든 A[N,N])."""
+def encode_doc(sents, tok, model, device, sep="\n", refine_from_layer=0, nll_chunk=0):
+    """단일 forward pass → (문장 surprise[N], 문장 대표key로 만든 A[N,N]).
+
+    Args:
+        nll_chunk: >0 이면 토큰 NLL 을 이 크기의 행 청크로 나눠 계산한다. `log_softmax` 는
+            **행별로 독립**이므로 결과는 청크 없이 계산한 것과 수치가 동일하다 — 달라지는
+            건 `[T,V]` fp32 사본과 log_softmax 버퍼를 동시에 들고 있지 않는다는 것뿐이다.
+            0(기본) = 기존 동작. GPU 를 다른 작업과 공유해 여유 메모리가 적을 때 쓴다
+            (Llama-3.1-8B 는 V=128256 이라 T=4900 에서 fp32 사본만 2.5GB).
+    """
     input_ids: list[int] = []
     spans: list[tuple[int, int]] = []
     for s, sent in enumerate(sents):
@@ -130,12 +138,24 @@ def encode_doc(sents, tok, model, device, sep="\n", refine_from_layer=0):
 
     ids_t = torch.tensor([input_ids], dtype=torch.long, device=device)
     out = model(input_ids=ids_t, use_cache=True, output_hidden_states=False)
-    logits = out.logits[0].float()                       # [T, V]
 
     # 토큰 NLL: nll_tok[j] = surprise of token j+1
-    logp = F.log_softmax(logits[:-1], dim=-1)
     labels = ids_t[0, 1:]
-    nll_tok = (-logp.gather(1, labels[:, None]).squeeze(1)).cpu().numpy()   # len T-1
+    if nll_chunk and nll_chunk > 0:
+        parts = []
+        T1 = out.logits.shape[1] - 1
+        for a in range(0, T1, nll_chunk):
+            b = min(a + nll_chunk, T1)
+            lp = F.log_softmax(out.logits[0, a:b].float(), dim=-1)
+            parts.append(-lp.gather(1, labels[a:b, None]).squeeze(1))
+            del lp
+        nll_tok = torch.cat(parts).cpu().numpy()                           # len T-1
+        del parts
+    else:
+        logits = out.logits[0].float()                   # [T, V]
+        logp = F.log_softmax(logits[:-1], dim=-1)
+        nll_tok = (-logp.gather(1, labels[:, None]).squeeze(1)).cpu().numpy()   # len T-1
+        del logits, logp
 
     # post-RoPE keys: past_key_values[l].key  → [1, n_kv_head, T, head_dim]
     pkv = out.past_key_values

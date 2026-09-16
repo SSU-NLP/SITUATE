@@ -168,6 +168,11 @@ def main():
     ap.add_argument("--ctx", type=int, default=1024)
     ap.add_argument("--stride", type=int, default=512)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--dequantize-mxfp4", action="store_true",
+                    help="mxfp4 체크포인트를 적재 시 bf16 으로 전개 (A100 등 pre-Hopper 필수).")
+    ap.add_argument("--device-map", default=None,
+                    help="지정 시 accelerate device_map 으로 적재 (양자화 MoE 등 단일 GPU 초과 모델용). "
+                         "미지정이면 기존 경로 그대로 — 기존 실행 조건 불변.")
     ap.add_argument("--fp32", action="store_true", help="use float32 (Bayesian-surprise KL is precision-sensitive)")
     ap.add_argument("--dump-words", type=Path, default=None,
                     help="also write per-word {doc_id,sent,pos,transient,raw} for dev aggregation analysis")
@@ -177,8 +182,19 @@ def main():
     print(f"[b1] loading {args.model} on {args.device} ...", file=sys.stderr)
     tok = AutoTokenizer.from_pretrained(args.model, use_fast=True)
     dtype = torch.float32 if (args.fp32 or args.device != "cuda") else torch.float16
-    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=dtype)
-    model.to(args.device).eval()
+    if args.device_map:  # 대형 MoE 전용 경로. 미지정 시 기존 동작 그대로 (조건 불변).
+        kw = {}
+        if args.dequantize_mxfp4:
+            # mxfp4 커널은 Hopper 이상 전용 — A100 에서 illegal memory access 로 죽는다.
+            # 문서화된 우회로: 적재 시 bf16 으로 전개. 수치는 동일하고 메모리만 늘어난다.
+            from transformers import Mxfp4Config
+            kw["quantization_config"] = Mxfp4Config(dequantize=True)
+        model = AutoModelForCausalLM.from_pretrained(args.model, dtype="auto",
+                                                     device_map=args.device_map, **kw)
+        model.eval()
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=dtype)
+        model.to(args.device).eval()
 
     rows = read(args.master)
     by = {}

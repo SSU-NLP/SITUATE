@@ -23,11 +23,17 @@ variables space/intentionality. All enums/rules/thresholds frozen before seeing 
 Inherited measurement hygiene (S1~S4): no halo (never ask change), no carryover (target-only),
 no free-form (closed lists), code-only change.
 
-D-B8: protagonist = `perspective` alone in the frozen count; `characters_present` is kept as an
-ablation column only. protagonist_present is a NEW additive experiment column (§3.1).
+D-B8 → **D-B10 (2026-07-22) 로 대체**: 동결 count 의 protagonist 성분은 `protagonist_present`
+(`perspective` 대체, `build_anchor_dataset.py` 가 쓰는 조합). `characters_present`·`perspective` 는
+ablation 컬럼으로만 남는다. `reset_matrix.jsonl` 은 세 컬럼을 모두 기록하므로 이 결정은 이 스크립트가
+아니라 소비 측에서 적용된다.
+
+동결 앵커 = `--prompt-version v3.1` (D-B14) · 라벨러 Qwen3.6-35B-A3B no-thinking (D-M13⑥).
+논문 appendix 용 프롬프트 전문은 `--dump-prompts [--dump-format latex]` 로 실제 호출 경로에서
+직접 렌더링한다(손으로 옮겨 적지 말 것 — 문구의 유일한 출처는 아래 빌더들이다).
 """
 from __future__ import annotations
-import argparse, hashlib, json, os, random, time
+import argparse, hashlib, json, os, random, re, time
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -244,6 +250,12 @@ def build_time_field(fixes: frozenset) -> str:
     return tense + body + conseq + " Judge only THIS sentence's own wording."
 
 
+SYSTEM_STAGE1 = ("You enumerate the entities present in a text as normalized identifiers. "
+                 "You never discuss structure, order, or boundaries.")
+SYSTEM_STAGE2 = ("You assign fixed categorical labels to one sentence at a time from a closed "
+                 "list. You never compare sentences and never output free text.")
+
+
 def stage1(c, model: str, story: str, max_tokens: int = 8000, extra_body: dict | None = None,
            pv: str = "v2", fixes: frozenset | None = None):
     """Stage 1 — one whole-story call producing the closed label space.
@@ -261,9 +273,7 @@ def stage1(c, model: str, story: str, max_tokens: int = 8000, extra_body: dict |
                 model=model, temperature=0, max_tokens=max_tokens,
                 response_format={"type": "json_schema", "json_schema":
                                  {"name": "story_entities", "strict": True, "schema": STAGE1_SCHEMA}},
-                messages=[{"role": "system", "content":
-                           "You enumerate the entities present in a text as normalized identifiers. "
-                           "You never discuss structure, order, or boundaries."},
+                messages=[{"role": "system", "content": SYSTEM_STAGE1},
                           {"role": "user", "content": prompt}],
                 **({"extra_body": extra_body} if extra_body else {}))
             out = json.loads(r.choices[0].message.content)
@@ -309,6 +319,17 @@ def stage2_schema(axis: str, lists: dict) -> dict:
             "properties": {"items": {"type": "array", "items": item}}, "required": ["items"]}
 
 
+# 축 공통 envelope. 축마다 바뀌는 것은 `{axis}` 이름과 `{field}` 블록뿐 — 나머지는 전 축 동일.
+STAGE2_TEMPLATE = """Label the {axis} state expressed by each TARGET sentence, independently.
+Choose exactly one value per field from its fixed list (arrays may be empty).
+
+Fields:
+{field}
+
+{tail}
+
+{payload}"""
+
 # common tail — target-only, no comparison, null only when no basis (§4.2)
 STAGE2_TAIL = (
     "Items are shuffled and unrelated. Never compare items to each other. Do not reason about "
@@ -326,40 +347,13 @@ def stage2_prompt(axis: str, lists: dict, items: list[tuple[int, str]], pv: str 
     prot = lists.get("protagonist") or "(unknown)"
     locs = ", ".join(sorted(set(lists["locations"]))) or "(none)"
     goals = ", ".join(sorted(set(lists["goals"]))) or "(none)"
-    # v3 (D-B12): space=A(vehicle 무대)+H(문장근거 없으면 강제 unspecified·맥락추론 금지);
-    # time=E(opens-with 대칭화 + consequence 접속사 배제 + First 보강); intentionality=B①(대사→목표 예시).
-    # protagonist·causality 는 v3에서도 v2와 동일(표본發 새 결함 0).
-    field_v3 = {
-        "space": (
-            "location: the STAGE this sentence depicts — where the narrated action is set, including "
-            "a vehicle / interior / airspace stage from the list when the action happens there. You "
-            "are NOT looking for a place word: pick the stage even if no place noun appears (e.g. "
-            "'he tossed in bed' -> bedroom). A place that is only MENTIONED — talked about or "
-            "recalled — is NOT the stage. Judge ONLY this sentence's own content: do NOT infer the "
-            "stage from neighboring sentences, earlier context, or where the character 'must' be. If "
-            "this sentence alone gives no stage (a bare emotion, an isolated reflection, a body part "
-            "with no setting), you MUST answer unspecified. "
-            f"Choose only from: [{locs}, unspecified]."),
-        "time": (
-            "tense: dominant grammatical tense of THIS sentence (past/present/future); none if unclear.\n"
-            "temporal_shift_marker: judge a shift ONLY if the marker OPENS this sentence (a leading "
-            "coordinating conjunction or quote is allowed). 'sequence' if it opens with a next-step "
-            "connective (then, next, after that, afterwards, first); 'jump' if it opens with a time "
-            "jump (later, the next morning, years later, a moment later); 'simultaneity' if it opens "
-            "with meanwhile / at the same time. A time word that appears mid-sentence ('he walked home "
-            "and later ate') is NOT a shift -> absent. Do NOT treat consequence/contrast connectives "
-            "(so, therefore, and yet, but) as time markers. Otherwise 'absent'. Judge only THIS "
-            "sentence's own wording."),
-        "intentionality": (
-            "active_goal: the Stage 1 goal that THIS sentence's action works toward. Read the purpose "
-            "from what the action does — the goal's own words need not appear. Speech is also action: "
-            "a command, request, promise, plan, or purposeful question can serve a goal. A goal that "
-            "is only MENTIONED — talked about as a topic — is NOT chosen. Use none only when the "
-            "action serves no goal on the list. (e.g. 'they talked about whether escape was possible' "
-            "-> none, only discussed; 'Meet me at midnight so we can escape' -> escape, the speech "
-            "serves it; 'he sawed through the fence bars' -> escape). "
-            f"Choose only from: [{goals}, none]."),
-    }
+    # protagonist·causality 는 어떤 fix 도 건드리지 않으므로 v2 문구 그대로 고정.
+    # space/time/intentionality 는 아래 모듈러 빌더가 만든다(무-fix = v2 문구 정확 재현,
+    # v3/v3.1 = 해당 fix 적용). ⚠️ 2026-07-24 이전에 여기 있던 v3 리터럴 사본(`field_v3`)과
+    # space/time/intentionality 의 v2 사본은 빌더 도입 후 **호출되지 않는 죽은 코드**였고
+    # 실제 전송 문구와도 미세하게 달라져 있었다(예: 'afterwards, first' 순서, 잔여 "Otherwise
+    # 'absent'."). 인용 사고를 막기 위해 제거 — 실제 문구의 유일한 출처는 빌더다.
+    # 전문 확인: `--dump-prompts --prompt-version v3.1`.
     field = {
         "protagonist": (
             f"characters_present: the subset of this cast that appears/acts in THIS sentence; "
@@ -368,19 +362,6 @@ def stage2_prompt(axis: str, lists: dict, items: list[tuple[int, str]], pv: str 
             "(first/second/third); none if no person.\n"
             f"protagonist_present: true if the grammatical subject/experiencer of THIS sentence is "
             f"the designated protagonist `{prot}`, otherwise false."),
-        "space": (
-            "location: the STAGE this sentence depicts — where the narrated action is set. You are "
-            "NOT looking for a place word: pick the stage even if no place noun appears (e.g. "
-            "'he tossed in bed' -> bedroom). A place that is only MENTIONED — talked about or "
-            "recalled — is NOT the stage (e.g. 'they spoke of home in England' -> the stage is not "
-            "England). Use unspecified only when THIS sentence gives no basis for a stage at all. "
-            f"Choose only from: [{locs}, unspecified]."),
-        "time": (
-            "tense: dominant grammatical tense of THIS sentence (past/present/future); none if unclear.\n"
-            "temporal_shift_marker: 'sequence' if THIS sentence opens with a next-step connective "
-            "(then, next, after that); 'jump' if it marks a time jump (later, the next morning, years "
-            "later); 'simultaneity' (meanwhile, at the same time); otherwise 'absent'. Judge only THIS "
-            "sentence's own wording."),
         "causality": (
             "event_type: the kind of event/action expressed in THIS sentence.\n"
             "aspect: 'inceptive' if THIS sentence begins a new action/state, 'completive' if it "
@@ -388,15 +369,7 @@ def stage2_prompt(axis: str, lists: dict, items: list[tuple[int, str]], pv: str 
             "causal_marker: 'cause' if THIS sentence carries a cause connective (because, since, "
             "때문에), 'consequence' if a result connective (so, therefore, as a result, 그래서), "
             "else 'absent'. Judge only THIS sentence's own wording."),
-        "intentionality": (  # Q5=(a); suppression removed after smoke v2 under-fired (user 2026-07-21)
-            "active_goal: the Stage 1 goal that THIS sentence's action works toward. Read the purpose "
-            "from what the action does — the goal's own words need not appear. A goal that is only "
-            "MENTIONED — talked about as a topic — is NOT chosen. Use none only when the action serves "
-            "no goal on the list. (e.g. 'they talked about escaping the compound' -> none, the goal is "
-            "only discussed; 'he sawed through the fence bars' -> escape, the action serves it). "
-            f"Choose only from: [{goals}, none]."),
     }
-    # space/time/intentionality = per-fix modular builders (무-fix=v2 재현); prota/causality = v2 고정.
     if axis == "space":
         field = build_space_field(locs, fx)
     elif axis == "time":
@@ -422,15 +395,7 @@ def stage2_prompt(axis: str, lists: dict, items: list[tuple[int, str]], pv: str 
     else:
         field = field[axis]
     payload = "\n\n".join(f"ITEM {i}\nTARGET: {s}" for i, s in items)
-    return f"""Label the {axis} state expressed by each TARGET sentence, independently.
-Choose exactly one value per field from its fixed list (arrays may be empty).
-
-Fields:
-{field}
-
-{STAGE2_TAIL}
-
-{payload}"""
+    return STAGE2_TEMPLATE.format(axis=axis, field=field, tail=STAGE2_TAIL, payload=payload)
 
 
 def stage2_call(c, model: str, axis: str, lists: dict, items: list[tuple[int, str]],
@@ -443,9 +408,7 @@ def stage2_call(c, model: str, axis: str, lists: dict, items: list[tuple[int, st
                 response_format={"type": "json_schema", "json_schema":
                                  {"name": f"{axis}_s5_states", "strict": True,
                                   "schema": stage2_schema(axis, lists)}},
-                messages=[{"role": "system", "content":
-                           "You assign fixed categorical labels to one sentence at a time from a closed "
-                           "list. You never compare sentences and never output free text."},
+                messages=[{"role": "system", "content": SYSTEM_STAGE2},
                           {"role": "user", "content": prompt}],
                 **({"extra_body": extra_body} if extra_body else {}))
             return json.loads(r.choices[0].message.content)["items"], prompt
@@ -625,10 +588,310 @@ def reset_intentionality(a: dict, b: dict) -> int:  # after carry (was reset_goa
     return int(a["active_goal"] != b["active_goal"] and "none" not in (a["active_goal"], b["active_goal"]))
 
 
+# ---------------------------------------------------------------- prompt dump (paper appendix)
+# 논문 appendix 에 프롬프트 전문을 싣기 위한 렌더러. **프롬프트 문자열을 재작성하지 않고**
+# 실제 호출 경로(build_stage1 / stage2_prompt)를 그대로 태워 뽑으므로, 여기 출력과 실제 전송
+# 문자열이 어긋날 수 없다(=`prompt_sha256` 동결 불변). 스토리·문장·닫힌목록 자리는 아래 슬롯으로
+# 대체된다 — 그 자리에 Stage-1 산출 목록이 쉼표로 이어붙어 들어간다.
+SLOT_STORY = "{{STORY}}"                 # Stage-1: 문서 전문
+SLOT_SENT = "{{SENTENCE_i}}"             # Stage-2: 한 TARGET 문장
+SLOT_LISTS = {"cast": ["{{CAST}}"], "protagonist": "{{PROTAGONIST}}",
+              "locations": ["{{LOCATIONS}}"], "goals": ["{{GOALS}}"]}
+
+
+FIELD_VALUES = {  # `--dump-prompts` 의 [closed value sets] 표기. 실제 제약은 stage2_schema() 가 건다.
+    "characters_present": "Stage-1 cast (any subset, possibly empty)",
+    "perspective": PERSPECTIVE, "protagonist_present": ["true", "false"],
+    "location": "Stage-1 locations + unspecified", "tense": TENSE,
+    "temporal_shift_marker": TEMPORAL_SHIFT, "event_type": EVENT_TYPE, "aspect": ASPECT,
+    "causal_marker": CAUSAL_MARKER, "active_goal": "Stage-1 goals + none",
+    "intentional_chain_role": CHAIN_ROLE,
+}
+
+
+# latex 모드 전용 ASCII 폴딩. verbatim 안에서 pdfLaTeX 가 넘어지지 않게 하되, 무엇을 바꿨는지
+# 반드시 헤더 주석으로 같이 찍는다(=조용한 변조 금지). 남은 비-ASCII 가 있으면 예외로 죽는다.
+ASCII_FOLD = {"—": "--", "’": "'", "‘": "'", "“": '"', "”": '"',
+              "때문에": "ttaemune", "그래서": "geuraeseo"}
+
+
+def _fold_ascii(s: str) -> str:
+    for k, v in ASCII_FOLD.items():
+        s = s.replace(k, v)
+    bad = sorted({ch for ch in s if ord(ch) > 127})
+    if bad:
+        raise ValueError(f"latex 덤프에 폴딩 규칙 없는 비-ASCII 문자: {bad} — ASCII_FOLD 에 추가하라")
+    return s
+
+
+# 한 줄로 이어지는 논리 단위의 시작. 이 패턴이 아닌 줄은 앞 단위에 이어 붙인다(소스 코드의
+# 임의 줄바꿈 제거). 빈 줄은 문단 구분으로 보존한다.
+_UNIT_START = re.compile(r"^(-\s|\[|\{\{|ITEM\b|[A-Za-z_]+:)")
+_LABEL = re.compile(r"^\[[A-Za-z][A-Za-z ]*\]$")   # `[System]` / `[User]` / `[Slots]` — 단독 유지
+
+
+def _pre_wrap(s: str, width: int) -> list[str]:
+    """줄 구조를 그대로 두고 넘치는 줄만 접는다(JSON 스키마처럼 형태가 의미인 블록용)."""
+    import textwrap
+    out: list[str] = []
+    for line in s.split("\n"):
+        indent = " " * (len(line) - len(line.lstrip(" ")))
+        out += textwrap.wrap(line, width=width, subsequent_indent=indent + "    ",
+                             break_long_words=False, break_on_hyphens=False) or [""]
+    return out
+
+
+def _reflow_wrap(s: str, width: int) -> list[str]:
+    """verbatim 용 재조판: 소스의 임의 줄바꿈을 없애고 `width` 열로 hard-wrap 한다.
+
+    verbatim 에는 자동 줄바꿈이 없어 원문 그대로 두면 컬럼 밖으로 흘러넘친다. 바꾸는 것은
+    **공백뿐** — 토큰 열은 실제 전송 문자열과 같다. 바이트 단위 원본이 필요하면 기본(text) 모드.
+    """
+    import textwrap
+    units: list[str] = []
+    for line in s.split("\n"):
+        st = line.strip()
+        if not st:
+            units.append("")
+        elif not units or units[-1] == "" or _LABEL.match(units[-1]) or _UNIT_START.match(st):
+            units.append(st)
+        else:
+            units[-1] += " " + st
+    out: list[str] = []
+    for u in units:
+        if not u:
+            out.append("")
+            continue
+        hang = "    " if u.startswith("- ") else "  "
+        out += textwrap.wrap(u, width=width, subsequent_indent=hang,
+                             break_long_words=False, break_on_hyphens=False)
+    return out
+
+
+def _closed_values(axis: str) -> str:
+    """축이 고르는 값 집합을 사람이 읽는 한 줄씩으로. 실제 제약은 `stage2_schema()` 가 건다."""
+    return "\n".join(
+        f"  {f}: " + (FIELD_VALUES[f] if isinstance(FIELD_VALUES[f], str)
+                      else ", ".join(FIELD_VALUES[f]))
+        for f in AXIS_FIELDS[axis])
+
+
+def _field_block(axis: str, pv: str, fixes: frozenset) -> str:
+    """실제 Stage-2 프롬프트에서 축별 `Fields:` 블록만 잘라낸다(공통 envelope 제외)."""
+    body = stage2_prompt(axis, SLOT_LISTS, [], pv, fixes)
+    return body.split("Fields:\n", 1)[1].split("\n\n" + STAGE2_TAIL, 1)[0]
+
+
+def _type_str(prop: dict) -> str:
+    """JSON Schema 한 속성을 한 줄 타입 표기로. 원 스키마의 제약을 빠짐없이 옮긴다."""
+    if "enum" in prop:
+        return "enum[" + ", ".join(prop["enum"]) + "]"
+    if prop.get("type") == "array":
+        inner = _type_str(prop["items"])
+        return f"array of {inner}" + (f" (max {prop['maxItems']})" if "maxItems" in prop else "")
+    return str(prop.get("type"))
+
+
+def _schema_lines(schema: dict) -> str:
+    """`stage2_schema()`/`STAGE1_SCHEMA` 를 속성 한 줄씩으로 옮긴다(디코딩 제약, 프롬프트 아님)."""
+    props = schema["properties"]
+    pad = max(len(k) for k in props) + 2
+    body = "\n".join(f'  "{k}":'.ljust(pad + 4) + _type_str(v) for k, v in props.items())
+    return "{\n" + body + "\n}  // all keys required, no others allowed"
+
+
+def _item_schema(axis: str) -> str:
+    """응답을 구속하는 실제 JSON Schema(아이템 1개분). 프롬프트 문구가 아니라 디코딩 제약이다."""
+    return _schema_lines(stage2_schema(axis, SLOT_LISTS)["properties"]["items"]["items"])
+
+
+# 슬롯 = 프로그램이 채우는 자리. B.1 의 `Given:` 목록에 해당하는 섹션을 블록마다 붙인다.
+SLOTS_STAGE1 = f"- {SLOT_STORY}: the full text of one document"
+SLOTS_ENVELOPE = ("- {{DIMENSION}}: protagonist | space | time | causality | intentionality\n"
+                  "- {{FIELD_BLOCK}}: that dimension's field block\n"
+                  f"- {SLOT_SENT}: one sentence, in the order shuffled for this dimension")
+# 축별로 **그 블록에 실제로 등장하는** 슬롯만 싣는다.
+SLOT_DESC = {"{{CAST}}": "the Stage-1 cast, comma-joined",
+             "{{PROTAGONIST}}": "the Stage-1 protagonist id",
+             "{{LOCATIONS}}": "the Stage-1 locations, comma-joined",
+             "{{GOALS}}": "the Stage-1 goals, comma-joined"}
+
+
+def _slots_used(text: str) -> str:
+    used = [f"- {s}: {d}" for s, d in SLOT_DESC.items() if s in text]
+    return "[Slots]\n" + "\n".join(used) if used else ""
+
+
+# 축별 라벨 역할 + 캡션. 문구는 **논문 §Large-Scale Situation-State Annotation(Stage 2)** 의
+# 서술을 그대로 따른다 — appendix 박스가 본문 설명과 1:1 로 대응해야 하기 때문이다.
+# primary = Stage 3 의 상태변화 타깃을 만드는 필드, auxiliary = 기록만 하고 타깃에 안 들어가는 필드.
+DIMENSION_NOTE = {
+    "protagonist": {
+        "primary": [("protagonist_present", "whether the central character is present")],
+        "auxiliary": ["perspective", "characters_present"],
+        "caption": "Primary label: whether the central character is present in the current "
+                   "scene. The narrative perspective of the central acting character is "
+                   "annotated as auxiliary information for absolute-state prediction; the "
+                   "cast subset is retained as an ablation column only."},
+    "space": {
+        "primary": [("location", "the candidate location in which the action takes place")],
+        "auxiliary": [],
+        "caption": "Identifies the candidate location in which the described action takes "
+                   "place. The neutral value unspecified is assigned when the setting cannot "
+                   "be established from the sentence alone."},
+    "time": {
+        "primary": [("temporal_shift_marker", "the temporal-shift marker opening the sentence")],
+        "auxiliary": ["tense"],
+        "caption": "Indicates whether the sentence begins with a temporal-shift marker "
+                   "expressing a time jump, sequential progression, or simultaneity. Markers "
+                   "appearing mid-sentence, as well as causal or contrastive connectives, are "
+                   "not treated as temporal transitions. Tense is auxiliary and unused."},
+    "causality": {
+        "primary": [("event_type", "the kind of event the sentence expresses"),
+                    ("aspect", "whether an action or state begins, ends, or continues")],
+        "auxiliary": ["causal_marker"],
+        "caption": "Represented by the event type expressed by the sentence and by an aspect "
+                   "label indicating whether a new action or state begins, ends, or continues. "
+                   "The explicit causal connective is an auxiliary column."},
+    "intentionality": {
+        "primary": [("active_goal", "the goal the action is actually directed toward")],
+        "auxiliary": [],
+        "caption": "Identifies the active goal, among the candidate goals, toward which the "
+                   "action in the sentence is actually directed. The neutral value none is "
+                   "assigned when the action serves no candidate goal."},
+}
+
+
+def _labels_section(axis: str) -> str:
+    """`[Labels]` — 어느 필드가 Stage-3 타깃이고 어느 것이 보조인지(논문 Stage 2 서술과 대응)."""
+    note = DIMENSION_NOTE.get(axis)
+    if not note:
+        return ""
+    lines = [f"- primary: {f} -- {g}" for f, g in note["primary"]]
+    if note["auxiliary"]:
+        lines.append("- auxiliary (recorded, not used as a target): "
+                     + ", ".join(note["auxiliary"]))
+    return "[Labels]\n" + "\n".join(lines)
+
+
+def _tex_escape(s: str) -> str:
+    """verbatim 밖(제목·캡션)에 나가는 문자열의 LaTeX 특수문자 이스케이프."""
+    for a, b in (("\\", "\\textbackslash "), ("&", "\\&"), ("%", "\\%"), ("$", "\\$"),
+                 ("#", "\\#"), ("_", "\\_"), ("{", "\\{"), ("}", "\\}")):
+        s = s.replace(a, b)
+    return s
+
+
+def dump_prompts(pv: str, fixes: frozenset, axes: tuple[str, ...] = AXES,
+                 fmt: str = "text", width: int = 62, box_prefix: str = "A") -> str:
+    """Stage-1 + Stage-2 프롬프트 전문을 렌더링한다 (`--dump-prompts`).
+
+    실제 호출 경로(`build_stage1` / `stage2_prompt`)를 그대로 태우므로 여기 출력은 전송 문자열과
+    정의상 일치한다. 문서·문장·닫힌목록 자리만 `SLOT_*` 로 치환된다.
+
+    Args:
+        pv: 프롬프트 버전 태그(동결 앵커 = `v3.1`).
+        fixes: `fixes_of()` 가 돌려준 fix 집합.
+        axes: 덤프할 축. 기본은 동결 5축(실험 축 `chainrole` 제외).
+        fmt: `text` = 사람이 읽는 덤프, `latex` = 논문 appendix 에 그대로 붙이는 verbatim 블록.
+        width: latex 모드의 hard-wrap 열 수(ACL 단일 컬럼 \\footnotesize 기준 62).
+        box_prefix: latex 모드 박스 번호의 접두(Appendix A 에 실으면 "A" → Box A.1, A.2 …).
+
+    Returns:
+        렌더링된 프롬프트 전문. system/user 메시지와 닫힌 값 집합을 모두 포함한다.
+    """
+    tag = (("p0s5-eism-fix:" + ",".join(sorted(fixes)))
+           if fixes and pv not in VERSIONS else VERSIONS[pv])
+    head = (f"prompt_version = {tag}   fixes = {{{', '.join(sorted(fixes)) or '-'}}}\n"
+            "decoding = temperature 0, JSON-schema constrained, batch of items per Stage-2 call")
+    # 한 블록 = (제목, 캡션, [(kind, 본문)]). kind: prose = 재조판 허용, pre = 줄 구조 보존.
+    stage1_seg = [("prose", f"[System]\n{SYSTEM_STAGE1}\n\n[User]\n{build_stage1(fixes, SLOT_STORY)}"),
+                  ("prose", f"[Slots]\n{SLOTS_STAGE1}"),
+                  ("pre", f"[Response schema]\n{_schema_lines(STAGE1_SCHEMA)}")]
+    blocks: list[tuple[str, str, list[tuple[str, str]]]] = [
+        ("Stage 1: Candidate Set Construction",
+         "One call per document. The normalized inventories it returns serve as the label "
+         "spaces used in Stage 2 and the comparison units used in Stage 3. To avoid "
+         "introducing event-structural information, the prompt prohibits descriptions of "
+         "event order or structure and restricts outputs related to boundaries, segments, "
+         "changes, or scenes.",
+         stage1_seg)]
+
+    if fmt == "text":                       # 축마다 실제로 보낸 문자열 전체를 그대로
+        for axis in axes:
+            blocks.append(
+                (f"Stage 2 field block --- {axis}", "",
+                 [("prose", f"[System]\n{SYSTEM_STAGE2}\n\n[User]\n"
+                            f"{stage2_prompt(axis, SLOT_LISTS, [(0, SLOT_SENT)], pv, fixes)}"),
+                  ("prose", f"[Closed value sets]\n{_closed_values(axis)}"),
+                  ("pre", "[Response schema] the reply is {\"items\": [<item>, ...]}, "
+                  f"one <item> per ITEM:\n{_item_schema(axis)}")]))
+        bar = "=" * 96
+        out = [bar, head, bar]
+        for title, _cap, segs in blocks:
+            out += ["", f"### {title}", ""] + ["\n".join(b for _k, b in segs)] + ["", bar]
+        return "\n".join(out)
+
+    # latex 모드는 **factored**: 축마다 글자 그대로 같은 envelope(system·머리말·공통 꼬리말·아이템
+    # 형식)를 5번 싣는 것은 지면 낭비다. envelope 를 한 번만 싣고 축별로는 Fields 블록과 응답
+    # 스키마만 싣는다 — 슬롯을 채워 넣으면 실제 전송 문자열이 그대로 복원된다.
+    blocks.append((
+        "Stage 2: Sentence-Level State Assignment (shared envelope)",
+        "Byte-identical for all five dimensions; substituting the dimension name and its field "
+        "block reconstructs the exact request sent to the annotator. Each sentence is annotated "
+        "independently, no label is carried over from another sentence, and the sentence order "
+        "is the one shuffled for that dimension.",
+        [("prose", f"[System]\n{SYSTEM_STAGE2}\n\n[User]\n"
+                   + STAGE2_TEMPLATE.format(
+                       axis="{{DIMENSION}}", field="{{FIELD_BLOCK}}", tail=STAGE2_TAIL,
+                       payload="ITEM 0\nTARGET: {{SENTENCE_0}}\n\nITEM 1\n"
+                               "TARGET: {{SENTENCE_1}}\n\n[... one batch of items per call]")),
+         ("prose", f"[Slots]\n{SLOTS_ENVELOPE}")]))
+    for axis in axes:
+        field = _field_block(axis, pv, fixes)
+        segs = [("prose", f"[Field block: {axis}]\n{field}")]
+        for extra in (_slots_used(field), _labels_section(axis)):
+            if extra:
+                segs.append(("prose", extra))
+        segs.append(("pre", "[Response schema] the reply is {\"items\": [<item>, ...]}, "
+                     f"one <item> per ITEM:\n{_item_schema(axis)}"))
+        cap = DIMENSION_NOTE.get(axis, {}).get("caption", "")
+        blocks.append((f"Stage 2 field block --- {axis}",
+                       f"Substituted into the envelope of Box {box_prefix}.2. " + cap, segs))
+
+    subs = ", ".join(f"{k} -> {v}" for k, v in ASCII_FOLD.items()
+                     if any(k in b for _t, _c, sg in blocks for _k, b in sg))
+    out = ["% AUTO-GENERATED -- do not hand-edit. Regenerate with:",
+           f"%   python scripts/eacl_phase0/llm_s5_states.py --dump-prompts "
+           f"--dump-format latex --prompt-version {pv}",
+           f"% {head.splitlines()[0]}",
+           f"% ASCII substitutions for verbatim: {subs or '(none)'}"]
+    for i, (title, cap, segs) in enumerate(blocks, 1):
+        lines: list[str] = []
+        for j, (kind, text) in enumerate(segs):
+            if j:
+                lines.append("")
+            wrap = _pre_wrap if kind == "pre" else _reflow_wrap
+            lines += wrap(_fold_ascii(text), width)
+        out += ["", "\\vspace{0.6em}", "\\noindent\\rule{\\columnwidth}{0.8pt}\\\\[-0.4em]",
+                f"{{\\footnotesize\\textbf{{Box {box_prefix}.{i}: "
+                f"{_tex_escape(_fold_ascii(title))}}}}}\\\\[-0.7em]",
+                "\\noindent\\rule{\\columnwidth}{0.4pt}",
+                "\\nopagebreak", "{\\footnotesize", "\\begin{verbatim}", *lines,
+                # `\end{verbatim}` 뒤 같은 줄에는 아무것도 두지 않는다(그룹 닫는 중괄호도 다음 줄로).
+                "\\end{verbatim}", "}", "\\vspace{-0.7em}",
+                "\\noindent\\rule{\\columnwidth}{0.8pt}"]
+        if cap:
+            out += [f"\\vspace{{0.2em}}\n"
+                    f"{{\\footnotesize\\textit{{{_tex_escape(_fold_ascii(cap))}}}}}"]
+        out += ["\\vspace{0.6em}"]
+    return "\n".join(out)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("master", type=Path)
-    ap.add_argument("out_dir", type=Path)
+    ap.add_argument("master", type=Path, nargs="?")
+    ap.add_argument("out_dir", type=Path, nargs="?")
     ap.add_argument("--model", default="openrouter/deepseek/deepseek-v4-pro")
     ap.add_argument("--batch", type=int, default=20)
     ap.add_argument("--stage1-max-tokens", type=int, default=8000,
@@ -653,8 +916,32 @@ def main() -> None:
     ap.add_argument("--fixes", default=None,
                     help="개별 fix CSV (space_A,space_H,intent_2,intent_1,time_E,time_conseq,time_first). "
                          "지정 시 --prompt-version 무시하고 v2+그 fix만. 비지정 시 pv(v2=∅/v3=ALL). 별도 out_dir.")
+    ap.add_argument("--chat-template-kwargs", default=None,
+                    help="vLLM chat_template_kwargs 를 JSON 으로 직접 지정 (--no-reasoning 의 기본 dialect 를 "
+                         "대체). gpt-oss 처럼 enable_thinking 이 없고 reasoning_effort 만 있는 모델용 — "
+                         '예: \'{"reasoning_effort":"low"}\'. 미지정 시 동결 동작 그대로.')
+    ap.add_argument("--dump-prompts", action="store_true",
+                    help="실제 호출 경로로 렌더링한 Stage-1/Stage-2 프롬프트 전문을 stdout 으로 출력하고 "
+                         "종료한다(API 호출 없음). 논문 appendix 수록용. `--prompt-version`/`--fixes` 를 "
+                         "그대로 따르므로 동결본은 `--dump-prompts --prompt-version v3.1`.")
+    ap.add_argument("--dump-format", choices=["text", "latex"], default="text",
+                    help="--dump-prompts 출력 형식. latex = appendix 에 그대로 붙이는 verbatim 블록 "
+                         "(hard-wrap + ASCII 폴딩, 치환 목록을 헤더 주석에 명시).")
+    ap.add_argument("--dump-width", type=int, default=62,
+                    help="--dump-format latex 의 hard-wrap 열 수 (기본 62 = ACL 단컬럼 footnotesize).")
+    ap.add_argument("--dump-box-prefix", default="A",
+                    help="latex 박스 번호 접두. 프롬프트를 Appendix A 에 실으면 A → Box A.1 …")
     args = ap.parse_args()
-    if args.no_reasoning:
+    if args.dump_prompts:
+        axes = tuple(args.axis) if args.axis else AXES
+        print(dump_prompts(args.prompt_version, fixes_of(args.prompt_version, args.fixes), axes,
+                           args.dump_format, args.dump_width, args.dump_box_prefix))
+        return
+    if args.master is None or args.out_dir is None:
+        ap.error("master 와 out_dir 은 필수다 (--dump-prompts 일 때만 생략 가능)")
+    if args.chat_template_kwargs:
+        extra_body = {"chat_template_kwargs": json.loads(args.chat_template_kwargs)}
+    elif args.no_reasoning:
         extra_body = ({"chat_template_kwargs": {"enable_thinking": False}} if args.engine == "vllm"
                       else {"reasoning": {"enabled": False}})
     else:
