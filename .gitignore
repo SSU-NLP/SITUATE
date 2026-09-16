@@ -147,3 +147,8 @@ benchmarks/EventRecall/
 
 # 쓰기권한 확인용 임시 파일
 .write_test
+
+# sqlite caches (embedding/API caches — 재현 가능, 대용량)
+*.sqlite
+*.sqlite3
+*.db

@@ -113,7 +113,15 @@ class CSMOnlineDelay2:
     # (smoke test confirmed: DSE-BERT backbone → softmax saturates to 1.0).
     backbone: str = "bert-base-uncased"
     device: str = "cpu"
-    alpha: float = 0.0
+    # 🔒 as-published = 1.0. SuperDialseg `CSMSegmenter(cut_rate=1.0)` +
+    # `cutoff_threshold(cut_rate, mean, std) = mean + cut_rate*std` 와 대응하며,
+    # 2026-05-24 실행(`outputs/experiments/2026-05-24_csm_online_delay2_fixed/`) 및
+    # `outputs/reports/dts_result.md` CSM-Style 행이 쓴 값이다.
+    # 🔴 이전 기본값 0.0 은 폐기된 버그판
+    # (`2026-05-23_csm_online_delay2_buggy_alpha0_logitdiff/`) 값이 남아 있던 것 — D-B41 정정.
+    # 탐색하지 않는다: α 는 **발표된 값**이므로 TextTiling w/k/c · GraphSeg 임계와 같이 고정한다
+    # (우리가 발명한 스트리밍 knob 만 탐색하는 것이 D-B41 규약).
+    alpha: float = 1.0
     delay: int = 2
     warmup_gaps: int = 3
     min_gap: int = 2

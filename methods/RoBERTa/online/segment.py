@@ -72,14 +72,18 @@ DEFAULT_MODEL_DIR = (REPO / "methods" / "RoBERTa" / "_roberta_unzip"
 
 
 @torch.no_grad()
-def eval_online(model, tok, dialogs, cfg, device) -> dict:
-    """Strict-causal online 추론.
+def predict_online(model, tok, dialogs, cfg, device) -> list[list[int]]:
+    """Strict-causal online 추론 — **예측만** 돌려준다 (채점 없음).
 
     경계 ``(t-1, t)`` 를 turn ``t`` 도착 시점의 causal 윈도우
     ``u_{max(0,t-W+1)..t}`` 만으로 결정 (미래 미관측). 윈도우 안에서 발화
     ``t-1`` 의 ``</s>`` 분류 logit 의 argmax. 한 dialogue 의 윈도우들은
     속도를 위해 한 번에 forward 하지만 *각 윈도우는 독립적으로 causal* —
     turn-by-turn 스트리밍과 결과가 동일하다 (turn 당 윈도우 1개).
+
+    반환 ``yp[i] = 1`` 은 발화 ``i`` 가 세그먼트의 **마지막** turn 이라는 뜻
+    (SuperDialseg 라벨 규약). 채점기를 바꿔 끼울 수 있도록 분리해 뒀다 —
+    `scripts/eacl_phase0/baseline_compare.py` 가 하네스 (A) 로 재채점한다.
     """
     model.eval()
     W, pad = cfg["sliding_window"], tok.pad_token_id
@@ -106,7 +110,12 @@ def eval_online(model, tok, dialogs, cfg, device) -> dict:
                 yp[t - 1] = int(logits[w, j].argmax())
         yp[-1] = 0                                  # 마지막 발화는 경계 아님
         preds.append(yp)
-    return score_dialogs(dialogs, preds)
+    return preds
+
+
+def eval_online(model, tok, dialogs, cfg, device) -> dict:
+    """`predict_online` + 원 SuperDialseg 채점기(하네스 C). 기존 호출부 호환용."""
+    return score_dialogs(dialogs, predict_online(model, tok, dialogs, cfg, device))
 
 
 def write_report(exp_dir: Path, cfg: dict, results: dict, lat_ms: float) -> None:
