@@ -326,3 +326,76 @@ git 정책: `outputs/experiments/<name>/REPORT.md`, `outputs/reports/*.md`, `out
 1. 위 형식 (무엇/어디/왜/행동영향/한계) 으로 한 섹션 추가.
 2. 어느 버전이 영향받는지 명시.
 3. 실험에서 이 인프라가 *결과에 영향을 줬으면* 반드시 기록 (예: `--no-thinking` 누락으로 sweep 망친 사례).
+
+---
+
+## 16. LLM attention mass 추출 — pre-hook + 블록 causal softmax (2026-07-31)
+
+- **무엇**: 문서 전체에 대해 토큰별 "받은 attention 질량"
+  `a_t = Σ_{layer,head,query} p[q,t]` 를, `[L,H,T,T]` attention 행렬을 **만들지 않고** 얻는다.
+  attention 모듈에 `register_forward_pre_hook(with_kwargs=True)` 를 걸어 모듈 입력
+  (post-`input_layernorm` hidden)과 `position_embeddings=(cos,sin)` 을 캡처한 뒤, forward 종료 후
+  모듈 자신의 `q_proj`/`k_proj`/`apply_rotary_pos_emb`/`repeat_kv` 로 post-RoPE Q,K 를 재구성한다.
+- **어디**: `scripts/segment_attn_entity.py`
+  — `attention_mass()` (드라이버), `_post_rope_qk()` (재구성), `_mass_rowsent()` / `_mass_full()`
+  (두 정규화 경로). 검증 = `tests/test_attn_mass.py`.
+  미러링 대상 = `transformers/models/qwen2/modeling_qwen2.py:150-206` (`Qwen2Attention.forward`).
+- **왜**:
+  - `output_attentions=True` 는 **쓸 수 없다**. T=6,637 에서 한 레이어 `[1,28,T,T]` fp16 = 2.47 GB,
+    transformers 가 28 레이어 전부 보관 = **69 GB**. 게다가 sdpa 가 조용히 eager 로 폴백한다
+    (`modeling_qwen2.py:184-189`).
+  - EM-LLM 원본은 이 값을 내부에 이미 갖고 있으나(`context_manager.py:716` `exc_repr_score`)
+    라이브러리 밖에서는 못 꺼낸다. `scripts/segment_manual_emllm.py:20-21` 의 "못 뽑아" 주석은
+    **모델 밖 재구성이 가능하다는 점에서 정정 대상**이다.
+- **★ 핵심 성질 — `rowsent` 정규화에서는 전체 causal prefix softmax 가 불필요하다.**
+  타깃을 문장 i 의 토큰 집합 `core(i)` 로 제한하고 각 쿼리 행을 그 위에서 재정규화하면
+  전역 분모 `Z_q` 가 **정확히 소거**된다:
+  `p̃[q,t] = (e^{s_qt}/Z_q) / (Σ_{t'∈core(i)} e^{s_qt'}/Z_q) = e^{s_qt} / Σ_{t'∈core(i)} e^{s_qt'}`
+  ⇒ `core(i)` 위의 restricted softmax 와 동일(인과 마스크는 그대로). 비용이 `O(Σ_i |Q(i)|·|core(i)|)`
+  로 떨어져 dev-3 문서당 **7~9초**. `count`/`none` 정규화는 전역 분모가 필요해 블록 경로로 간다.
+- **행동 영향**: M9-AttnEntityDrift 전용으로 도입. 다른 method 는 아직 쓰지 않는다.
+  LM 은 `Qwen/Qwen2.5-7B`(base) — `segment_manual_emllm.py` 와 같아야 EM-LLM 대조가 like-for-like.
+- **알려진 한계 / 변형 후보**:
+  - `char_start` 는 **토큰의 첫 비공백 문자** offset 이어야 한다. Qwen BPE 토큰은 선행 공백을
+    포함하므로(`" McGowan"`) 토큰 시작 offset 을 쓰면 spaCy 토큰 span 매칭이 대량 실패한다
+    (실측 868/2,928/4,652 건). `assert_token_offsets()` 가 재발을 막는다.
+  - 추출 자체는 건전하나 **그 위의 "상위 k = 엔티티" 해석은 기각됐다**(D-B58): 상위 토큰의
+    40~50% 가 불용어·구두점이고 문장 첫 내용어에 위치 편향된다. 재사용 시 이 점을 전제할 것.
+  - `scope=retrieved`(쿼리가 과거 전체 어디를 보는가) 미구현.
+  - 캐시는 `[n_layer, n_head, T]` fp16 로 **전 레이어·전 헤드** 저장(문서당 1.6~7 MB) — 레이어대역·
+    헤드집계 ablation 이 재추출 없이 가능하다.
+
+---
+
+## 17. Tier2 silver gold 생성 — B2/B3 절차 재현 설정 (2026-07-15 동결, 2026-08-01 기록)
+
+- **무엇**: 봉인 시험지에 사람 경계가 없으므로, **B2(Michelmann)/B3(Panela) 절차로 LLM 은(silver)
+  정답**을 만든다. 설정 = ① 입력을 `re.sub(r"\s+", " ")` 로 눌러 **문단 없는 한 덩어리**로 만들고
+  ② **B2 zero-shot 프롬프트를 한 글자도 바꾸지 않고**("사건이 끝나고 새 사건이 시작될 때마다 새 줄을
+  시작하며 이야기를 그대로 베껴 써라") ③ **20회 반복**(temp 1.0) ④ 각 run 이 삽입한 줄바꿈을
+  **단어 오프셋 정렬**로 문장 전이에 사상 ⑤ **과반(⌈R/2⌉) run 이 찍은 전이만 경계**로 하는 다수결 합의.
+- **어디**: `scripts/eacl_phase0/build_tier2_gold.py` — 정규화 `:143`, 프롬프트 `PROMPT_HEAD/TAIL`,
+  합의 파싱 `:67-70`. 문장화는 동결 `split_sentences`(`build_pieman_pack`) 그대로.
+  산출 `outputs/eacl_phase0/tier2/{sid}_gold.json`(run별 + 합의), `--apply` 시 master 의 `boundary` 채움.
+  스펙 = `EACL/tier2-heldout-spec.md`, 요약 = `EACL/pipeline-overview-ko.md` §1.3.1.
+- **왜**: ① **문단 제거는 재현 충실도이자 파싱 전제다.** B3 는 사람이 서식에서 경계를 읽지 못하게
+  문단 없이 인쇄했는데, 우리 쪽에서는 **줄바꿈이 곧 출력 신호**라 입력에 줄바꿈이 남으면 모델이
+  삽입한 경계와 원문 줄바꿈을 구별할 수 없다. ② 프롬프트 무수정 = B3 가 "B2 의 zero-shot 프롬프트를
+  그대로 썼다"고 명시하므로 계보를 그대로 잇는다. ③ 20회 다수결 = B3 의 반복 설계 이식.
+- **행동 영향**:
+  - 🔴 **모델이 `gpt-4` → GPT-4.1 로 승계됐다.** 원 `gpt-4` 는 8k 컨텍스트라 전문 verbatim 복사가
+    기계적으로 잘린다(실측: 4,623단어 문서 절단). **성능 목적의 사후 교체가 아니라 동결 모델의
+    비실행성 교정**(D-M9 feasibility amendment). 인용은 *"B3 가 검증한 GPT-4 기반 **절차**를 채택,
+    더 긴 자극을 무손실 처리하려 후속 GPT-4 계열 사용"* 까지만 — **"B3 가 검증한 바로 그 모델"이라
+    쓰지 않는다.**
+  - 🔴 **순환 방지**: 이 gold 위에서 **B2/B3 를 베이스라인으로 쓸 수 없다**(gold 생성기, D-M6-c).
+    쓸 수 있는 비교군 = B1·M1·M2.
+  - 교차 계보(D-M6-b): gold = GPT-4 계열(OpenAI) vs 추출기 M3 = 다른 벤더 — 같은 모델이
+    gold 와 방법 양쪽에 들어가지 않게 한다.
+- **한계**:
+  - **B3 가 검증한 조건 밖이다.** B3 자극은 챕터당 **1,500단어 절단**인데 우리는 **절단하지 않는다**
+    (최대 4,623단어, 3배 이상). B3 의 "LLM 이 인간보다 일관됨" 주장은 그 길이에서 검증된 것이라
+    우리 조건으로 그대로 이월되지 않는다.
+  - **경계 주체가 다르다** — B3 는 사람 20명, 우리는 GPT-4.1 20회. **회상 과제(구술)는 없다.**
+  - **run 간 변이가 크다**: 고유 분절 7.9/20, 경계 수 최대 3배 변동. B3 의 일관성 주장과 긴장
+    관계이며, 구현 차이인지 자극 의존인지 **미확인**. 합의 산출물 자체의 안정성도 별도 검증 대상.

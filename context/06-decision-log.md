@@ -1799,3 +1799,146 @@ anchor-only 대비 개선 없음. ⇒ 위 2번의 충돌(의미공간 예측 = I
 
 **cascade.** `context/methodology/factored-slot.md` 신설(이 모듈이 methodology 에 한 번도 기록된 적
 없었음) · `EACL/method-registry.md` §1·§3 상태 갱신 · `EACL/phase0-decisions-and-runs.md` D-B17.
+
+---
+
+## 2026-07-28 — SEM 추론 층(식 1~8) 기각, 표상 층만 계승 (EACL D-B26/D-B27/D-B28)
+
+**결정.** M5-FactoredSlot 의 분절 경계 결정은 `Σ_k P(reset_k)` + 임계 규칙으로 확정한다.
+SEM 의 확률적 추론 층 — 식 1 sticky-CRP, 식 2 사건별 dynamics $\theta_e$, 식 3 $f_0$,
+식 4·5 posterior/우도분해, 식 8 local MAP — 은 **구현해 검정한 뒤 기각**한다.
+
+**근거 (CLAUDE.md SEM 계승 원칙의 3단계 중 "왜 없는지 명시" 에 해당).**
+1. 1차 시도(D-B18/B19)는 **식 2 의 $\theta_e$ 없이**(전역 $f_k$ 하나) 돌렸다. 그러면
+   *"이 사건의 모델이 무너진다"* 는 SEM 의 경계 발생 원리가 **작동할 수 없다.** 그 종결 판정은
+   무효 처리했다(D-B26, codex 확인).
+2. 재검정(D-B28)은 **공유 frozen 슬롯 + 전역 $f_k$ 위의 사건별 켤레 head**($m_e \sim N(\mu_0,\tau^2)$,
+   충분통계 O(1) 갱신, 재학습 없음)로 $\theta_e$ 를 구현했다. 온라인·no-fine-tuning 제약을 만족한다.
+3. **전제는 참이었다** — τ²/σ²(사건 간/사건 내 잔차 분산비) = 0.74~1.75. 사건마다 dynamics 가
+   실제로 다르다. λ 게이트도 inert 아님(사전이 결정을 바꿈).
+4. **그럼에도 미달** — dev-3 pooled Score 0.3490 vs 임계 규칙 0.4108 (**Δ −0.0617**), 경계 184 vs
+   gold 66 (**약 3배 과분절**). 기준은 결과 보기 전 D-B27 에 `≥ +0.010` 으로 고정돼 있었다.
+
+**실패 원인 (기록).** local MAP 은 전이마다 독립적으로 판정하고 한 번 넘으면 즉시 자른다 —
+문서 전체의 경계 **총량**을 제어하는 항이 없다. sticky-CRP 의 κ/λ 가 그 역할이어야 하나,
+슬롯 우도비 항(5축 × 128차원 로그밀도 합)이 사전 항(log 스케일 한 자릿수)을 압도한다.
+
+**영향.** 논문에서 Hi-OnTop 의 SEM 계승은 **표상 수준**(사건 = 다축 상태, 경계 = 축별 리셋의 집합)
+으로 한정해 서술한다. 추론 수준은 "검정 후 기각"으로 명시한다.
+M1 감사(*"이름은 SEM 이었으나 실제 작동한 건 코사인 드리프트뿐"*)와 같은 종류의 공시이되,
+**M5 는 검정을 거친 뒤 기각**했다는 점이 다르다.
+
+관련: `EACL/phase0-decisions-and-runs.md` D-B26·D-B27·D-B28 ·
+`scripts/eacl_phase0/switch_theta_e.py` ·
+`outputs/experiments/m4m5_phase1_anchor/SWITCH_THETA_E_M5_per_slot_seed0.md` ·
+`context/methodology/factored-slot.md` §6 · `context/00-sem-paper.md` §5 사후 정정 블록
+
+---
+
+## 2026-07-29 — baseline 대조는 **단일 하네스 + 예측 원자료**로 고정, 오프라인은 비교 대상에서 제외 (EACL D-B31)
+
+**결정 1 — 채점기를 (A) 로 사전 고정한다.** 동일 gold·동일 예측을
+(A) `hi_ontop.dts_scoring`(SuperDialseg 공식, CLAUDE.md 강제)과 (B) `methods/` 의 segeval
+per-dialogue macro 로 재보니 **ΔScore 0.045** 였다 — 우리가 재려는 효과(M5−M4 = 0.025)보다 크다.
+⇒ 두 출처를 한 표에 두는 것은 무효(D-B24 계열). **(A) 를 결과 보기 전에 주 하네스로 못박고**,
+(B)는 하네스 차이 진단용 브릿지로만 병기한다. **논문 인용 수치(Jiang et al. 2023 Table 3 등)는
+제3의 하네스이므로 이 표에 넣지 않는다.**
+
+**결정 2 — 예측 파일이 원자료, 집계 점수는 파생물.** 전 방법이 전이별 0/1 을
+`outputs/experiments/2026-07-29_baseline_compare/preds/` 에 덤프한다. 실제로 이 실험 중
+`results.json` 이 부분 재실행에 덮어써지는 사고가 났는데, 예측 덤프로 **재채점해 손실 없이
+복구**했다(원 로그와 완전 일치). 집계 파일은 언제든 다시 만들 수 있어야 한다.
+
+**결정 3 — 오프라인 방법은 경쟁 대상이 아니다** (사용자 지시). 우리 주장이 온라인·실시간이므로
+미래를 보는 방법과의 비교는 성립하지 않는다. SeCom 원본 partition 프롬프트(`baseline_segment_v1.md`)도
+whole-input 오프라인이라 미사용. baseline 4종(TextTiling/GraphSeg/GreedySeg/CSM)도 원논문의
+오프라인 추론(전 문서 depth + 전역 임계)이 아니라 **스트리밍 적응판**을 쓴다.
+⚠️ 그래서 이 점수들은 **원논문 성능이 아니며** 원논문 수치와 나란히 두면 안 된다.
+
+**결정 4 — LLM baseline 프롬프트는 도메인 적응판이고, 그 사실을 명시한다.** SeCom 원문은
+*"multi-turn conversation / turn by one speaker"* 인데 dev-3 는 화자도 턴도 없는 서사 산문이다.
+원문 그대로 쓰면 **SeCom 에 불리한 허수아비**가 되므로 **기준·출력형식·요구사항은 그대로 두고
+도메인 명사만 교체**했다(`baseline_segment_binary_narrative_v1.md`). stateful 판은 여기서 한 걸음
+더 나간 **우리 창작 확장**이다. 둘 다 "SeCom 원문 성능"으로 표기하지 않는다.
+
+**결과 (근거).** dev-3(서사)에서 M5 0.4190 > M4 0.3861 > SeCom-stateful 0.3689 > M1 0.3330 >
+TextTiling 0.3212 > **무경계 하한 0.2790** > SeCom 무상태 0.2899… GraphSeg 0.2212 · GreedySeg 0.1988.
+경계율 6.57% 라 **무경계 하한이 진짜 기준선**이고, 대화용 무감독 baseline 2종은 이를 못 넘었다.
+🔴 대화(DTS-3)에서는 **학습 없는 M1 이 M5 를 크게 이긴다**(tiage 0.392 vs 0.315) — 우리 경계율
+r=0.0642 를 서사 앵커에서 동결해 쓴 결과의 구조적 과소분절이다. **"OOD 도 된다"고 주장하지 않는다.**
+
+**부수 정정.** LLM 에게 *자기가 이미 확정한 경계*를 문맥에 주면 dev-3 Score +0.0790
+(경계 166→56, gold 66). 단 **F1 은 0.152→0.155 로 그대로**이고 이득은 전부 과분절 벌점 감소다.
+⇒ **경계 개수 자가결정은 LLM 에게도 어려운 문제이며, 프롬프트가 상태를 주느냐에 달려 있다.**
+deployable 규약(개수를 방법이 스스로 정한다)이 왜 필수인지의 직접 증거로 쓴다.
+
+관련: `EACL/phase0-decisions-and-runs.md` D-B31 ·
+`outputs/experiments/2026-07-29_baseline_compare/REPORT.md` ·
+`scripts/eacl_phase0/baseline_compare.py` · `scripts/eacl_phase0/llm_baseline_binary.py` ·
+`context/methodology/v4.2.5.md` 2026-07-29 정정 블록(CSM 자산 소실·외부 레포 패치) ·
+`context/03-architecture.md` 진입점
+
+---
+
+## 2026-07-31 — M9-AttnEntityDrift 설계 결정 및 폐기
+
+**결정 배경.** "EM-LLM 의 surprisal 대신 LLM 이 집중하는 토큰을 엔티티로 뽑아 그 거리로 경계를
+잡자"는 제안. EM-LLM 원본이 per-key attention mass 를 계산해 놓고 검색에만 쓰고 경계 판정에는
+안 쓴다는 사실이 근거였다.
+
+**실행 전 확정한 설계 판단 6건** (전부 `outputs/experiments/2026-07-31_m9_attn_entity/PREREG.md` §3.2):
+
+| 항목 | 결정 | 근거 |
+|---|---|---|
+| attention sink | `core_spans`(sep·구두점 제외) + 행 재정규화 `rowsent` | `add_special_tokens=False` 라 BOS 가 없다 → 전역 sink 는 문장 0 만 오염. sep 토큰이 진짜 문제이고 재정규화로 산술 소거된다 |
+| 인과마스크 편향 | query scope `sentnext` | EM-LLM `repr_score` 가 local window 내 쿼리로부터 받은 질량인 것과 동형. `rowsent` 가 쿼리 개수 편향도 같이 제거 |
+| 레이어/헤드 | `18-27` (= round(0.625·28)), head-agg `mean` | EM-LLM `refine_from_layer=20/32` 비율. 홀드아웃이 없어 균등가중이 유일한 무편향 기본 |
+| 엔티티 동일성 | **서브워드 → 원문 단어 병합** | `" McG"+"owan"` 같은 BPE 분할이 집합 겹침을 죽인다 |
+| 표현 레이어 | `hidden_states[18]`, 토큰별 L2 → 평균 → 재L2 | post-RoPE key 금지(회전 위상이 내용보다 코사인을 지배). Qwen massive-activation 이상치 때문에 비정규화 평균은 그 토큰 하나가 된다 |
+| k | 3 고정 | 집합 겹침은 cardinality 가 맞아야 비교 가능 → 길이비례 k 는 편향. EM-LLM `repr_topk=4` 도 고정 |
+
+**판정 (D-B58).** 사전등록 45셀 중 무경계 하한+노이즈(0.3390)를 넘은 셀 **0개**. attention 선택의
+측정 가능한 기여 없음(Δ 중앙 −0.021), 무작위 순위 대비 우위 없음(Δ 중앙 −0.018).
+⛔ **raw attention top-k 를 엔티티 추출기로 쓰는 노선 폐기.**
+
+**남긴 자산.** attention mass 추출 인프라 자체는 건전하며 재사용 가능
+(`context/methodology/infrastructure.md` §16). 부산물로 **EM-LLM 의 dev-3 수치**를 처음 생산했다
+(raw surprisal 0.2711/0.2699 = 무경계 하한 0.2790 **아래**, +modularity 0.2978).
+
+**⚠️ 규칙 미이행 기록.** `CLAUDE.md` 는 설계 옵션 선택을 `codex:rescue` 서브에이전트에 위임하라고
+요구하는데 해당 세션에 그 에이전트가 없어 대체했다. 위 6건은 codex 검토를 받지 않았다.
+
+관련: `EACL/phase0-decisions-and-runs.md` D-B58 · `EACL/method-registry.md` M9 ·
+`outputs/experiments/2026-07-31_m9_attn_entity/{PREREG,REPORT}.md` ·
+`scripts/segment_attn_entity.py` · `scripts/eacl_phase0/run_attn_entity_dev3.py` ·
+`scripts/eacl_phase0/spacy_token_tags.py` · `tests/test_attn_mass.py` ·
+`context/methodology/infrastructure.md` §16
+
+---
+
+## 2026-08-03 · 작가당 상한 키를 author 문자열 → 인물로 변경 (코퍼스 재빌드)
+
+**결정.** per-author limit 의 키를 서지 레코드의 `author` 문자열이 아니라 **인물**(정규화 이름 + 생몰연도)로 정의한다.
+동시에 ScANT 평가 후보 저자 4명(Doyle·Dickens·Fitzgerald·Baum)을 코퍼스에서 격리한다. 상한은 N=20 유지.
+
+**근거.** 문자열 키는 같은 인물이 삽화가·서문저자와 함께 표기되면 별개 키가 되어 상한을 여러 번 받는다.
+실측으로 인물 1,320명 중 71명이 20편 초과, 초과분 925편(코퍼스의 7.15%). Doyle 은 문자열 2개로 40편.
+이 상태에서는 "개인 저자 편중을 통제했다"는 Appendix 주장이 성립하지 않는다 — 정의를 "author-credit string 당 20편"
+으로 바꾸면 기술적으로는 방어되나 연구 목적과 맞지 않는다. ScANT 를 보조 test 로 쓸 계획이므로,
+격리 없이 얻은 점수는 "미지 저자 일반화"가 아니라 "학습 중 본 저자의 다른 작품으로의 전이" 평가가 된다.
+격리 시점을 뒤로 미루면 결과를 본 뒤 기준을 바꾸는 셈이라 지금 함께 적용한다.
+
+**인물 키 규칙(보수적).** 생몰연도가 충돌하거나 없으면 자동 병합하지 않는다. 이니셜·필명·역순 표기는 명시적
+alias 목록이 있을 때만 병합한다. 검수 목록은 `outputs/reports/author_key_review_20260803/`.
+실측 함정: `Austen, Jane, 1775-1817` 과 `Austen, Sidney` 는 동명이인 — 성만 대조하면 잘못 병합한다.
+
+**영향.** 코퍼스 12,942 → 11,880편(권 3,122→2,969 · 문장 3,305,655→3,053,830). 5축 주석 11,842편(99.68%),
+상한 위반 0, 파싱 손상 0. 주석 재사용 99.3% 로 신규 라벨링은 43편에 그쳤다.
+교환비 정점이 N=20 → N=13 으로 이동했으나 95% 구간(10~24) 안이라 규모를 고려해 N=20 유지.
+figure_01 은 인물 키로 재생성하고 `selected N=20` 과 `peak N=13` 을 함께 표시한다.
+
+관련: `EACL/UNATTENDED_2026-08-02_delta_cap20.md` §인물 키 재빌드 ·
+`scripts/eacl_phase1/{rebuild_personkey,author_review_list}.py` ·
+`scripts/eacl_phase1/{sweep_final_pool,plot_cap_sweep}.py` (`--author-key`) ·
+`data/eacl_phase1/pg_shorts_personkey_cap20_scant.jsonl` ·
+`outputs/experiments/2026-08-02_author_cap/table_final_dev3_personkey.json`

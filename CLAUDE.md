@@ -300,35 +300,28 @@ Claude Code가 파일 1개를 수정·생성·삭제할 때마다 **다른 파�
 ## Figure 저장 규칙 (최상위 강제 규칙, 2026-05-25)
 
 논문/리뷰용으로 노출되는 모든 figure 의 *canonical* 저장 위치는
-`outputs/figures/` 한 곳. 파일명은 **`figure_<알파벳>_<제목>.{pdf,png}`** 형식 통일.
+`EACL/figures/` 한 곳. 파일명은 **`figure_<번호>_<제목>.{pdf,png}`** 형식 통일.
 
-- **<알파벳>**: A, B, C, ... 순서. **새 figure 추가** 시 가장 작은 미사용
-  letter 부여. **기존 figure 수정·재생성** 시 동일 letter 유지 (PDF 캐시
-  refresh 위해 timestamp 만 갱신, letter 안 바꿈).
+- **<번호>**: `01`, `02`, `03`, … **2자리 zero-pad**. **새 figure 추가** 시 가장 작은 미사용
+  번호 부여. **기존 figure 수정·재생성** 시 동일 번호 유지 (PDF 캐시
+  refresh 위해 timestamp 만 갱신, 번호 안 바꿈).
+  ⚠️ 2026-08-02 이전의 알파벳 체계(`figure_A_*` ~ `figure_Q_*`)는 폐기됐다.
+  `outputs/figures/` 도 함께 폐기 — 그 경로에 새로 만들지 않는다.
 - **<제목>**: snake_case, 그 figure 의 핵심 한 단어 (예: `latency_scatter`,
   `pareto_qa_context`, `delta_eff_distribution`).
-- **PDF + PNG 둘 다** 저장 (PDF = paper 삽입, PNG = preview / Read tool).
+- **PDF + PNG 둘 다** 저장 (PDF = paper 삽입, PNG = preview / Read tool). 300dpi,
+  `pdf.fonttype=42`(폰트 임베드).
 - experiment 디렉토리 (`outputs/experiments/<exp-name>/plots/`) 에 원본 generation 결과를 두는 건 OK 지만, paper 에 들어갈 *최종본* 은 반드시
-  `outputs/figures/` 로 copy. plot script 수정 → 재생성 → 자동으로
-  `outputs/figures/` 에 sync 까지 한 번에 해 줄 것 (사용자가 따로 안 시켜도).
+  `EACL/figures/` 로 copy. plot script 수정 → 재생성 → 자동으로
+  `EACL/figures/` 에 sync 까지 한 번에 해 줄 것 (사용자가 따로 안 시켜도).
+- **디자인 기준** = `EACL/figures/좋은figure예시.jpg`. 새 figure 는 이 예시의 폰트·글씨크기·
+  범례 위치(그림 아래 중앙, 테두리 없음)·축 처리(위쪽 spine 제거, 격자 없음, 제목 없음)를 따른다.
 
-현재 letter assignment (참조):
-- A — `band_precision` (Hi-OnTop band precision)
-- B — `latency_scatter`
-- C — `timeline_tape_conv3` (Long-MT-Bench+ conv 3 timeline)
-- D — `boundary_density_*` (4 분량: downstream + DTS 3종)
-- E — `segment_length_violin`
-- F — `boundary_agreement`
-- G — `pareto_qa_context`
-- H — `calib_n_convergence_{main,appendix_oracle,appendix_sup}`
-- I — `delta_eff_distribution`
-- L — `percentile_score_curve` (DTS Score vs percentile)
-- P — `distill_n_convergence_mtbp` (MTB+ LLM-distill N-convergence, p∈[5,95])
-- Q — `mtbp_percentile_curve` (MTB+ F1 vs percentile, Fig L counterpart, p∈[5,95])
-- J, K, M, N, O — 다른 figure 가 차지 (별도 추적). 새 figure 는 R 부터.
+현재 번호 배정 (참조):
+- 01 — `author_cap_diversity` (작가당 상한 N 에 따른 코퍼스 다양성)
 
-이유: figure 수정·인용 시 letter 가 결정적인 reference key. paper LaTeX
-`\ref{fig:I}` / 본문 "Figure I" 와 파일명이 즉시 매칭되어야 함. 다른 위치
+이유: figure 수정·인용 시 번호가 결정적인 reference key. paper LaTeX
+`\ref{fig:01}` / 본문 "Figure 1" 과 파일명이 즉시 매칭되어야 함. 다른 위치
 (plots/, reports/, 임시 dir) 에 흩어진 채로 paper 에 삽입 금지.
 
 ## 환경 분리

@@ -24,6 +24,8 @@ src/hi_ontop/
 ├── next_embed_head.py     # v4.3.2 δ_model (next-embedding regressor)
 ├── event_rnn.py           # v3.3.1 GRU event model
 ├── secom_adapter.py       # SeCom 백엔드로 분절기 주입 (downstream QA용)
+├── nemori_segmenter.py    # Nemori 메모리 시스템에 M5 분절기 주입 (LoCoMo 다운스트림)
+│                          #   방법론 context/methodology/nemori-m5-locomo.md
 └── baselines/             # 온라인 분절 baseline (texttiling/greedyseg/graphseg/csm)
 
 ## scripts/ (Phase 1 현재 실재)
@@ -52,6 +54,46 @@ tests/
 └── test_*_v*.py / baseline 테스트  # 분절 variant + online baseline (texttiling/greedyseg/graphseg)
 
 ## 진입점 (분절기)
+
+### ⭐ EACL 계열 기본 진입점 — M5 + 앵커 동결 임계 (2026-07-28 동결)
+```python
+from hi_ontop.m5_default import segment
+r = segment(sentences)        # -> {boundaries, segments, scores, axis_probs}
+```
+- 구현 `src/hi_ontop/m5_default.py` · 설정 `configs/m5_default.json` · 가중치 `models/m5_default/M5.pt`
+- CLI: `python -m hi_ontop.m5_default input.txt [--mode fixed_quantile] [--json]`
+- 신호 `s = Σ_k P(reset_k)` + **고정분위수 r=0.0642**(문서 내 상위 6.42%, 미래·gold개수 미사용).
+  LLM 없음 · 온라인.
+- 🔒 임계는 **앵커 val 5-fold OOF 가 선택**(D-B29/D-B30, 200 fold 중 192 승) — dev-3 미사용.
+  이전의 `online μ+1.0σ`(c 를 dev-3 에서 골랐던 값)는 **폐기**(dev-3 0.3617 vs 0.4191).
+- dev-3 Score **0.4191 ± 0.0037** (3 seed) · **영어 서사 전용**(D-M8).
+- 🔴 SEM 계승은 **표상 수준**뿐. 추론 층(sticky-CRP·우도비·local MAP)은 검정 후 **기각**(D-B28).
+
+### baseline 대조 진입점 — 단일 하네스 (2026-07-29 신설, D-B31)
+```bash
+python scripts/eacl_phase0/baseline_compare.py --datasets dev3 --methods M5,M4,M1-CosDrift,TextTiling,GraphSeg,GreedySeg,CSM,RoBERTa
+python scripts/eacl_phase0/llm_baseline_binary.py --dataset dev3 --model openrouter/openai/gpt-4o [--stateful]
+python scripts/eacl_phase0/baseline_opt_freeze.py --domain dev3|dialogue   # 작동점 동결 (앵커 사용 금지)
+python scripts/eacl_phase0/csm_ckpt_sweep.py --backbone bert-base-uncased  # CSM 체크포인트별 분절 Score
+```
+- 우리 방법과 `methods/` baseline 을 **같은 채점기 (A) `hi_ontop.dts_scoring`** 로 비교한다.
+  하네스 (B)(`methods/` 의 segeval macro)는 **브릿지 진단용으로만** 병기 — 주 결과 아님.
+  두 하네스는 동일 예측에서 **ΔScore 0.045** 까지 벌어진 적이 있다(D-B31 §1).
+- **예측 파일이 원자료** — 전 방법이 `outputs/experiments/2026-07-29_baseline_compare/preds/` 에
+  전이별 0/1 을 덤프한다. 집계 점수는 파생물이며 언제든 재채점 가능.
+- **오프라인 방법은 넣지 않는다**(경쟁 대상 아님). baseline 4종도 스트리밍 적응판을 쓴다.
+- LLM baseline 프롬프트 = `scripts/segmentation_prompts/baseline_segment_binary{,_stateful}_narrative_v1.md`
+  (SeCom 기준·출력형식 유지, 도메인 명사만 교체 · stateful 은 자기 확정 경계를 문맥에 제시).
+- 🔒 **baseline 작동점은 동결됐다**(`baseline_compare.py::FROZEN`, D-B41). 선택셋 = 서사 dev-3 ·
+  대화 superseg/validation 60대화. 🔴 **앵커 코퍼스는 선택에 쓰지 않는다** — 인간 경계 라벨이
+  없다(의사-gold `count≥t*=3`). `baseline_opt_freeze.py::load_narrative` 는 `SystemExit` 으로 막혀 있다.
+  탐색 이득은 4건 전부 Δ ≤ 0.0013 — **작동점은 baseline 약세의 원인이 아니다.**
+- **CSM 은 배포 체크포인트가 없어 직접 학습**했다(`external/Dialogue-Topic-Segmenter/`,
+  `bert-base-uncased`, 10 epoch · 4-GPU DDP · 15h 41m). `CSM` = 최종 ckpt, `CSM-devbest` =
+  superseg/validation Score 최대 ckpt(RoBERTa 와 같은 model-selection 프로토콜). 둘 다 보고한다.
+- 결과 → `outputs/experiments/2026-07-29_baseline_compare/REPORT.md` (완결 = ledger **D-B56**)
+
+### v2 계열 (DTS/AMI 기존 경로)
 ```python
 from hi_ontop.sem_core import HiOnTopSegmenter   # 또는 hi_ontop.hi_ontop_deneut.segment (drift/AMI)
 
