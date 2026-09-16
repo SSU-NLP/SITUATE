@@ -175,6 +175,22 @@ boundary ⟺ delta_eff ≥ δ*
 | **M6** | **FactoredShared** | factored 5 | 명시적 부분공간 | 자기지도+anchor | **공유 1개** | FLAM식 |
 | **M7** | **SlotAttnFactored** | factored 5 | **slot-attention** | 자기지도+anchor | 축별 5개 | M5 부족 시 |
 
+**학습 없는 계열 (M1/M3 과 같은 rule-based — 위 3축 표에 해당 없음).** M4~M7 의 앵커 학습 계열과
+혼동하지 말 것.
+
+| # | 이름 | 무엇 | 상태 |
+|---|---|---|---|
+| M8 | **DirectBoundary** | 동결 인코더 + 이진 경계 헤드 직행 (학습 있음, 축 없음) | ablation — `scripts/eacl_phase0/train_direct_boundary.py` |
+| M9 | **AttnEntityDrift** | LLM attention mass 상위 k 토큰 = 엔티티, 그 거리로 경계 | ⛔ **폐기 (D-B58)** — 전제 불성립 |
+
+- **M9 (AttnEntityDrift)** — *"EM-LLM 의 surprisal 대신, LLM 이 집중하는 토큰을 엔티티로 뽑아
+  그 사이 거리로 경계를 잡을 수 있나?"* → **아니다.** 사전등록 45셀 중 무경계 하한+노이즈를 넘은
+  셀 0개, attention 선택의 측정 가능한 기여 없음(Δ 중앙 −0.021), 무작위 순위 대비 우위 없음
+  (Δ 중앙 −0.018). 기전 = attention 상위 토큰의 40~50% 가 불용어·구두점이고 문장 첫 내용어에
+  위치 편향. 상세 = D-B58 · `outputs/experiments/2026-07-31_m9_attn_entity/REPORT.md`.
+  부산물로 **EM-LLM 의 dev-3 수치**를 처음 생산했다(raw surprisal 0.2711/0.2699 = 무경계 하한
+  0.2790 **아래**, +modularity 0.2978).
+
 ### 각 방법이 답하는 질문
 
 - **M4 (MonoAnchor)** — *"분리가 정말 필요한가?"*

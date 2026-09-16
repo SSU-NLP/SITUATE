@@ -10,6 +10,13 @@
 4. **`plan-factored-slot.md`** — 실행 로드맵 (Phase별 GATE·실패 분기·우선순위).
 5. ~~**`tier2-heldout-spec.md`**~~ — ⛔ **폐기(D-M13①).** Tier2 held-out 제외. held-out = Tier1 6편(신규 *Born a Crime* 3편). 역사 기록으로만 보존.
 6. **`factored-slot-eism-v0_1.md`** — 방법론 설계 명세 (이론 정박·생성모델·M5 아키텍처).
+7. **`main_result.md`** — **논문 main table 의 canonical**: 6지표(Score·BOR·purity·coverage·F(p,c)·L1)
+   전면 결과표 4무대(dev-3 · 시험지 · DTS-3). **생성물**이며 손으로 고치지 않는다
+   (`scripts/eacl_phase0/write_main_result.py`). 결정 = ledger **D-B62**.
+8. **`methods/README.md`** — **외부 방법 재구현·재현 판정의 canonical** (2026-08-03 신설).
+   RelatedWork 12종의 구현 위치·재현 성공/실패·차단 사유가 여기 산다. 방법별 상세는
+   `methods/<method>/REPRO.md`. 🔴 이 문서가 **`main_result.md` 의 "LLM 직접질의" 행 명칭
+   정정**(B2 가 아니라 B3 계열)을 기록하고 있다 — `methods/llm_direct/REPRO.md` §1.
 
 ---
 
@@ -30,6 +37,9 @@
 - **Phase 0: 조건부 Go — scope = narrative fiction.** M3가 서사 픽션에서 M1-CosDrift를 상회(dev). ~~판별자는 place(무대) 축~~ → **D-M13⑤ 철회**(표본 부족).
 - **🔴 그러나 held-out 승리는 0개다.** 9개 변종의 test 점수를 본 뒤 설정을 골라 **selection-on-test 오염** → **7개 데이터 전부 dev로 강등**. 현재 수치는 **탐색적 결과**이며 held-out 성능이 아니다.
 - **fiction held-out doc이 1개뿐 → bootstrap CI 불가.**
+- **🔴 2026-08-02: 봉인 시험지(신규 3편)를 개봉했다(D-B62, 사용자 지시).** 확정 패스 진입 조건
+  (1만편 k 재설정 → 재학습) **전**에 열었으므로 확인적 결과가 아니다. 결과 = **M5 가 1위가 아니다**
+  (LLM 직접질의/GPT-4.1 · TextTiling 아래 3위). 전 수치 = `main_result.md`.
 
 ## 다음 단계 (canonical = ledger 상단 스냅숏 "🔒 다음" — 아래는 요약)
 

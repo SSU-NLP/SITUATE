@@ -1,0 +1,605 @@
+% =====================================================================
+% Appendix: Baseline implementation details and hyperparameters
+% 본문 대응 문단 = \subsection{Baselines} 의 "Full implementation details and
+% hyperparameters are provided in Appendix~\ref{app}."
+%
+% 근거 파일
+%   EACL/UNATTENDED_2026-08-03_online_baselines.md            (D-01 ~ D-20)
+%   outputs/experiments/2026-08-04_online_baselines_close/REPORT.md
+%   outputs/experiments/2026-08-04_online_baselines_close/lookahead_audit.json
+%   outputs/experiments/2026-08-03_narrative_online/table4_6docs.json
+%   scripts/eacl_phase0/make_main_table.py                    (표 행 구성·명명 규칙)
+% =====================================================================
+
+\section{Baseline Implementation Details}
+\label{app:baselines}
+
+This appendix documents every row of Table~\ref{tab:main}: what code and weights
+were run, which hyperparameters were used, what had to be changed to satisfy the
+no-future-context setting, and which variants were measured but excluded.
+All numbers referenced here were produced by the runners named in each
+paragraph; predictions for every system are dumped in a common format
+(one binary vector of length $n-1$ per document, indexed by transition) and
+scored by a single scorer, so that no row is advantaged by a different
+evaluation path.
+
+% ---------------------------------------------------------------------
+\subsection{Shared evaluation protocol}
+\label{app:baselines-protocol}
+
+\paragraph{Evaluation data.}
+All systems are evaluated on the same six narratives, three development and
+three held-out (Table~\ref{tab:app-eval-data}). The development narratives are
+the spoken accounts used by \citet{michelmann2025large}; the held-out narratives
+are three excerpts from \emph{Born a Crime} annotated by 20 human listeners,
+whose consensus boundaries form the gold standard. Boundary density varies by a
+factor of five across documents ($0.036$--$0.190$), which is why every claim in
+the main table is read against a no-boundary floor computed per document set.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Split & Document & Sent. & Trans. & Gold \\
+\midrule
+\multirow{3}{*}{dev-3}
+ & Pieman        &  96 &  95 & 18 \\
+ & Tunnel        & 504 & 503 & 18 \\
+ & Monkey        & 408 & 407 & 30 \\
+\addlinespace
+\multirow{3}{*}{test-3}
+ & Run           & 150 & 149 & 14 \\
+ & GoHitler      & 113 & 112 & 13 \\
+ & MyMothersLife & 172 & 171 & 16 \\
+\midrule
+ & Total         & 1{,}443 & 1{,}437 & 109 \\
+\bottomrule
+\end{tabular}
+\caption{Evaluation data. ``Trans.'' is the number of scored transitions
+($=$ sentences $-1$); ``Gold'' is the number of human boundaries.}
+\label{tab:app-eval-data}
+\end{table}
+
+\paragraph{Boundary index convention.}
+Transition $j$ is the position between sentence $j$ and sentence $j+1$
+($0$-indexed). Streaming segmenters that report ``the utterance that opens a new
+segment'' (index $b$, $1$-based) are mapped to transition $b-1$. Following the
+convention of \citet{jiang2023superdialseg}, the last transition of a document
+is always labelled $0$ for both gold and prediction.
+
+\paragraph{Deployable scoring.}
+Every system decides for itself how many boundaries a document contains; the
+gold boundary count is never supplied to any method. Where a method's published
+read-out requires an externally supplied count (top-$k$), we replace it and say
+so explicitly (\S\ref{app:baselines-dts}). Thresholds and adaptation rules are
+frozen on dev-3 and never re-selected on test-3.
+
+\paragraph{Metrics.}
+Score, BOR and Lift are as defined in \S\ref{sec:metrics}. Score is computed per
+document and averaged; the per-split aggregates quoted in this appendix are the
+mean over the three documents of that split, and the ``Avg'' column of
+Table~\ref{tab:main} is the mean over all six.
+AUC is not reported for baselines: their prediction dumps are binary, so no
+continuous ranking signal is available.
+
+% ---------------------------------------------------------------------
+\subsection{The online criterion and how it was audited}
+\label{app:baselines-online}
+
+\paragraph{Definition.}
+A system is \emph{online} (zero-lookahead) if the decision for transition $j$
+uses only sentences $u_{\le j+1}$ --- that is, the decision is final at the
+moment the sentence that would open the new segment arrives. A system is
+\emph{bounded-lookahead with delay $d$} if the decision for transition $j$ is
+emitted only after $u_{j+1+d}$ has been observed.
+
+\paragraph{Measured, not assumed.}
+Push-based streaming segmenters trivially pass a future-perturbation test,
+because future sentences have not been pushed yet; such a test is therefore no
+evidence at all. What actually varies is \emph{latency}. We instrumented every
+push-based segmenter: if \texttt{push}$(u_t)$ emits boundary $b$, the decision
+for transition $b-1$ used $u_b \dots u_t$, so its delay is $t-b$; we take the
+maximum over all six documents. Two implementations turned out to advertise the
+wrong grade, in both cases optimistically:
+
+\begin{itemize}\itemsep2pt
+\item A class named \texttt{GreedySegOnlineDelay2} (suggesting $d{=}2$) measured
+      $d{=}7$, because its finalisation routine accumulates candidates and
+      commits them in a batch.
+\item A graph-based segmenter configured with a window of $10$ measured $d{=}6$,
+      because it does not emit until its window is full.
+\item The streaming TextTiling variant that our earlier tables listed simply as
+      ``TextTiling'' measured $d{=}22$. Its advantage over the zero-lookahead
+      version ($+0.057$ Score on dev-3) is entirely an advantage of seeing 22
+      sentences of future context.
+\end{itemize}
+
+\paragraph{Consequence for the main table.}
+Because a ``bounded'' label without a number is uninformative --- readers
+imagine $d{=}2$ when the truth may be $d{=}22$ --- Table~\ref{tab:main} contains
+\emph{only} rows whose measured maximum delay is $0$. Where the published method
+is structurally bounded, we re-ran it in a zero-lookahead configuration and
+marked it as a deviation from the original (\S\ref{app:baselines-naming}); the
+bounded originals are reported in \S\ref{app:baselines-excluded} so that the
+cost of removing lookahead is visible.
+
+% ---------------------------------------------------------------------
+\subsection{Naming convention in Table~\ref{tab:main}}
+\label{app:baselines-naming}
+
+\begin{itemize}\itemsep2pt
+\item \textbf{\texttt{X}} --- the published method run as published
+      (offline). Only TextTiling appears in this form.
+\item \textbf{\texttt{X-style Online}} --- the published method was offline or
+      symmetric-context, and we re-ran its scoring function under the
+      zero-lookahead read-out described below.
+\item \textbf{plain name} (EM-LLM, BayesSurprise) --- the published method is
+      already causal; nothing was changed, so no suffix is added.
+\item $\dagger$ --- the adaptation changes the \emph{method definition}, not
+      only the inference schedule (Embedding Delta's symmetric window,
+      DialSTART's top-$k$ read-out). These rows are not comparable to the
+      corresponding published numbers.
+\item $\ddagger$ --- not a published model: our own re-implementation trained on
+      our anchor labels (\S\ref{app:baselines-ssc}).
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\subsection{Unsupervised narrative event segmentation}
+\label{app:baselines-nes-unsup}
+
+\paragraph{Embedding Delta \citep{schneider2021detecting} ---
+\texttt{EmbeddingDelta-style Online}$^{\dagger}$.}
+The original pipeline embeds tokens with spaCy vectors, fits a $k$-means
+codebook over the \emph{whole document}, represents each sentence as a cluster
+histogram, computes a normalised cosine distance between a left and a right
+window of 25 sentences each, smooths the signal with a moving average of 10, and
+takes local maxima with \texttt{argrelmax(order=20)} as boundaries. Three of
+these steps use the future and all three were changed:
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}p{0.30\columnwidth}p{0.28\columnwidth}p{0.30\columnwidth}@{}}
+\toprule
+Original & Future used & Online replacement \\
+\midrule
+$k$-means over all document tokens & whole document &
+\texttt{MiniBatchKMeans.partial\_fit} on tokens seen so far \\
+right window of $w$ sentences & $w$ ahead &
+right window of $1$ sentence (\texttt{-{}-right-w 1}) \\
+\texttt{argrelmax(order=20)} & $20$ ahead &
+running $\mu + c\sigma$ over past scores \\
+\bottomrule
+\end{tabular}
+\caption{Making Embedding Delta zero-lookahead.}
+\label{tab:app-embdelta}
+\end{table}
+
+Hyperparameters follow the original where they are causal: $k=1000$ clusters,
+left window $w=25$ sentences, smoothing window $10$, threshold constant
+$c=0.5$ (the original's ``$\mathrm{mean}+\mathrm{std}/2$'' rule), warm-up $5$
+scored transitions, spaCy \texttt{en\_core\_web\_lg} vectors,
+\texttt{MiniBatchKMeans}$(n\_init{=}3, \text{batch}{=}100,
+\texttt{random\_state}{=}0)$. The \emph{left} window is deliberately kept at
+$w=25$: shrinking both windows would confound ``worse because zero-lookahead''
+with ``worse because the window is narrow''.
+
+The right-window reduction is the reason for the $\dagger$: symmetric context is
+part of the original method definition. Two consequences are worth recording.
+First, removing lookahead does \emph{not} cost anything here --- the
+zero-lookahead version is $+0.014$ Score better on dev-3 and $-0.006$ worse on
+test-3 than the $d{=}25$ original, in contrast to TextTiling, where the same
+move costs $-0.057$ on dev-3. Lexical-cohesion signals profit from future
+context; codebook-histogram signals apparently do not. Second, the symmetric
+version needs 50 sentences before it can score anything and therefore emits
+\emph{zero} predictions on the 96-sentence Pieman; the zero-lookahead version
+needs 26 and emits 7.
+
+\emph{Reproducibility note.} The original code path had no seed on
+\texttt{MiniBatchKMeans}, so the codebook --- and the score --- differed between
+identical runs (dev-3 Score $0.2811 / 0.2809 / 0.2810$). We added
+\texttt{random\_state} and verified that two runs of the same configuration now
+agree exactly. Numbers reported before this fix should be read as
+$\pm 0.004$.
+
+% ---------------------------------------------------------------------
+\subsection{Supervised narrative event segmentation}
+\label{app:baselines-ssc}
+
+\paragraph{Why no published model can be run.}
+The three supervised scene-segmentation models in the narrative literature ---
+sequential sentence classification with half-stride inference
+\citep{zehe2025assessing}, the sentence-pair classifier of
+\citet{zehe2021detecting}, and the transfer approach of
+\citet{kurfali2021breaking} --- are German-only: they are built on German
+encoders and trained on the German Scene Dataset. Our evaluation narratives are
+English, so even a working checkpoint would have no zero-shot path.
+Independently, the released checkpoint for \citet{kurfali2021breaking} is no
+longer retrievable (the distribution link returns HTTP 404), the training corpus
+of \citet{zehe2025assessing} is copyrighted and not redistributable, and
+\citet{barth2021participation} requires a licensed lexical resource. We did not
+contact authors or request licences.
+
+\paragraph{\texttt{SSC-style Online (our anchors)}$^{\ddagger}$.}
+We therefore keep the \emph{architecture} and replace the training data: a
+sequential sentence classifier that reads a sliding context window of sentences
+and classifies each sentence as segment-final or not. Backbone
+\texttt{roberta-base} (the same backbone as the supervised DTS baseline, so the
+comparison is not confounded by encoder capacity), token-classification head
+with two labels. Training data are our anchor labels --- the same distant
+supervision that M4/M5/M8 receive, never human boundary annotations. Training
+configuration: AdamW, learning rate $1\times10^{-5}$, weight decay $1\times
+10^{-3}$, gradient clipping $1.0$, batch $8$, at most 20 epochs with early
+stopping on validation loss (patience 3) and best-epoch restore, bf16 autocast,
+seed 42; sliding window 20 sentences, at most 25 word-pieces per sentence, at
+most 512 word-pieces per window; documents split 90/10 into train and
+validation.
+
+Inference is the zero-lookahead path: the boundary between sentences $t-1$ and
+$t$ is decided once, when $t$ arrives, from the causal window
+$u_{\max(0,t-W+1)\dots t}$, classifying the position of sentence $t-1$. In
+particular \emph{Half Stride} --- the inference procedure that
+\citet{zehe2025assessing} introduce precisely because one-sided context is
+insufficient --- is not used, since it averages predictions over windows
+extending into the future. The gap between our online row and their reported
+offline performance should be read in that light; we cite their argument but do
+not report their numbers, since they are not comparable.
+
+This row is an ablation of our own, not a baseline: it shares our training
+signal and differs only in architecture. It is marked $\ddagger$ and described
+as ``our re-implementation, trained on our anchor labels'' wherever it appears.
+
+% ---------------------------------------------------------------------
+\subsection{LLM-signal narrative event segmentation}
+\label{app:baselines-llm}
+
+\paragraph{EM-LLM \citep{fountas2025human}.}
+We implement the surprise-threshold (SM) rule exactly as in the reference
+implementation: a transition is a boundary when the sentence-level surprise
+exceeds the mean plus $\gamma$ standard deviations of the surprise observed in
+the preceding window,
+$s_t > \mu(\text{win}) + \gamma\,\sigma(\text{win})$, with the window defined
+over the previous $n_{\text{local}}$ \emph{tokens} (not sentences) of the same
+document. Defaults are taken from the released configuration:
+$\gamma = 1.1$, $n_{\text{local}} = 4096$ tokens, no per-document tuning; a
+warm-up of 3 in-window sentences before the first decision.
+
+Two scoping decisions matter. (i) The graph-refinement stage (SM$+$), which
+re-places boundaries using modularity/conductance over the similarity graph of
+the \emph{following} segment, is excluded: it requires future context and would
+break the online claim. (ii) Sentence-level surprise is computed with a causal
+language model, and the tokenizer used to count $n_{\text{local}}$ must be that
+same model's tokenizer --- an early version of our runner counted a Qwen window
+with a Llama tokenizer. Correcting this did not change the scores (window
+coverage was already $\approx 1.0$), but the runners were fixed.
+
+The main-table row uses \texttt{Qwen2.5-7B} as the surprise model. Because
+EM-LLM's own experiments use Llama, we recomputed the entire pipeline with two
+Llama models to rule out a model-choice artefact
+(Table~\ref{tab:app-emllm-lm}); all three fall below the no-boundary floor on
+both splits, and the Llama models --- including the exact model used in the
+original work --- are worse than Qwen.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Surprise model & dev-3 & test-3 \\
+\midrule
+\texttt{Qwen2.5-7B} (main table)     & 0.2699 & 0.2784 \\
+\texttt{Llama-3.1-8B}                & 0.2511 & 0.2425 \\
+\texttt{Llama-3.1-8B-Instruct}       & 0.2230 & 0.2371 \\
+\midrule
+\emph{no-boundary floor}             & \emph{0.2790} & \emph{0.3092} \\
+\bottomrule
+\end{tabular}
+\caption{EM-LLM Score under three surprise models, all other settings fixed
+($\gamma{=}1.1$, $n_{\text{local}}{=}4096$, SM only). The segmentation code is
+byte-identical across rows; only the language model that produces the surprise
+sequence changes.}
+\label{tab:app-emllm-lm}
+\end{table}
+
+\emph{Implementation notes.} The encoder must be loaded on a single GPU:
+sharding it with \texttt{device\_map="auto"} splits layers across devices and
+the per-layer representation stack then mixes tensors from different devices.
+When GPU memory is shared with other jobs, token negative log-likelihoods are
+computed in row chunks; \texttt{log\_softmax} is row-independent, and we
+verified $\max|\Delta s| = 0$ between the chunked and unchunked paths on one
+document before using it.
+
+\paragraph{BayesSurprise \citep{kumar2023bayesian}.}
+Word-level Bayesian surprise is the KL divergence between consecutive
+next-word distributions, $S_i = \mathrm{KL}(P(\cdot\mid w_{\le i}) \,\|\,
+P(\cdot\mid w_{\le i-1}))$, taken at the last word-piece of each word, computed
+with GPT-2-XL under a moving 1024-token context (stride 512), in float32
+(the KL is precision-sensitive). Surprise is transient-normalised following
+Reynolds: $\mu_1 = \overline{S}$, $\mu_t = \mu_{t-1} + (S_t-\mu_{t-1})\delta$,
+$\mathrm{Transient}_t = S_t/\mu_{t-1}$, with drift $\delta = 0.10$.
+
+The read-out is \texttt{newsent\_max}: the score of transition $t$ is the
+maximum transient surprise over all words of sentence $t+1$. The threshold is a
+running $\mu + c\sigma$ over the scores observed so far in the same document,
+with $c = 0.75$ frozen on Pieman and never re-tuned, and a warm-up of 3
+transitions. The method is causal by construction: normalisation uses only a
+past moving average, and the threshold uses only scores already observed.
+
+\emph{Read-out choice, recorded.} An onset-max read-out (maximum over the first
+$N$ words of the new sentence) was implemented first and is \emph{not} used: it
+is anti-correlated with boundaries in spoken narrative (AUC $0.35$), because
+event openings are formulaic (``And so\ldots'') and therefore low-surprise.
+Using it would have cost $-0.048$ dev-3 / $-0.019$ test-3.
+
+\paragraph{EventRecall \citep{panela2025event} ---
+\texttt{EventRecall-style Online}.}
+We port only the segmentation stage of that pipeline; the recall-scoring
+contribution is out of scope and this must be stated whenever the method is
+cited. The published procedure sends the entire narrative to the LLM in a single
+call and parses the returned event blocks --- an offline procedure. The online
+version asks, for each arriving sentence, a single binary question: given the
+narrative up to and including the current sentence, and given the segmentation
+the model has \emph{already committed to}, does this sentence begin a new event
+or continue the current one? The event criterion, the wording of the
+segmentation goal and the output format are taken verbatim from the original
+prompt; only the question is converted from ``partition this text'' to ``NEW or
+SAME''.
+
+Settings: \texttt{gpt-4.1} via OpenRouter, temperature $0$, at most 4 completion
+tokens, full past context (no truncation), 10 independent calls per transition
+with majority vote (matching the repetition-and-consensus aggregation of the
+offline procedure), stateful prompt (previously committed segment ids are shown,
+earlier decisions are final). Decisions within a document are therefore
+sequential; no future sentence is ever shown. Responses are cached, so the
+reported row is a single deterministic replay of one API run.
+
+\emph{Not comparable to the published numbers.} The original work reports a
+Hamming-distance-based segmentation figure that is dominated by boundary
+sparsity on our gold and that aggregates gold differently; there is no published
+number this row can be matched against.
+
+% ---------------------------------------------------------------------
+\subsection{Dialogue topic segmentation}
+\label{app:baselines-dts}
+
+\paragraph{TextTiling \citep{hearst1997text} --- two rows.}
+The \texttt{TextTiling} row is the unmodified NLTK implementation
+(\texttt{TextTilingTokenizer}, pseudo-sentence size $w=10$, block size $k=6$),
+applied to the whole document at once; sentences are joined by blank lines and
+the tile boundaries are mapped back to transitions. It is offline and is
+included as the reference point for what removing future context costs.
+
+The \texttt{TextTiling-style Online} row is the same scoring function under
+prefix re-computation: the decision for transition $j$ re-runs the tokenizer on
+$u_{\le j+1}$ and reads off position $j$. This is deliberately \emph{not} a
+streaming approximation --- the only variable that changes relative to the
+offline row is the availability of future context, so the difference is
+attributable to that alone. The cost is $O(n^2)$ tokenizer calls per document;
+on the 503-transition Tunnel this is minutes rather than the milliseconds the
+streaming variant takes, which is itself a finding: deploying a zero-lookahead
+lexical-cohesion segmenter requires an incremental implementation, not
+re-computation.
+
+\paragraph{DialSTART \citep{gao2023unsupervised} ---
+\texttt{DialSTART-style Online}$^{\dagger}$.}
+Weights are the authors' released \texttt{model\_711} checkpoint; the coherence
+scoring model, the tokenisation, the \texttt{window\_size} parameter and all
+weights are used unchanged. Three modifications were required and all three are
+marked by the $\dagger$:
+
+\begin{enumerate}\itemsep2pt
+\item \textbf{Read-out.} The released inference selects boundaries by
+      \texttt{argsort(depth)[-pick\_num:]} with $\texttt{pick\_num}=4$ --- a
+      \emph{fixed} number of boundaries per document, independent of document
+      length. This is not gold leakage, but it is incompatible with deployable
+      scoring, and on documents with 95--503 transitions and 13--30 gold
+      boundaries it is a severe under-prediction. We replace it with a running
+      $\mu + c\sigma$ threshold.
+\item \textbf{Depth computation.} The original right-peak search scans to the
+      end of the document. We bound it (\texttt{depth\_span}$=0$ in the
+      main-table configuration).
+\item \textbf{Scoring window.} The original scores transition $i$ from
+      $\texttt{text}[i{+}1], \texttt{text}[i{+}2]$. We reduce the right side to
+      the arriving sentence only (\texttt{-{}-right-window 1}), keeping the left
+      side at the published \texttt{window\_size}$=2$.
+\end{enumerate}
+
+Together these give a measured maximum delay of $0$. The threshold constant is
+$c=0.5$, matching the sign convention used by the other unsupervised rows
+(streaming TextTiling uses $c=0.5$; Embedding Delta uses the original's
+$\mathrm{mean}+\mathrm{std}/2$). \textbf{$c$ is not tuned.} An earlier
+configuration froze $c$ by sweeping on dev-3, which reached a much higher score
+($0.3586$ dev-3 / $0.3462$ test-3) --- but a baseline whose hyperparameter is
+fitted to our data is no longer that baseline, it is a variant of our own
+method, so the published constant is used instead. Untuned, the method
+over-segments badly on narrative (290 predictions against 66 gold boundaries on
+dev-3, BOR $3.62$).
+
+\emph{Not comparable to the published numbers.} The original reports Pk/WD on
+dialogue corpora with the top-$k$ read-out; this row measures what happens when
+a dialogue-trained segmenter is transferred zero-shot to narrative.
+
+\paragraph{Supervised RoBERTa \citep{jiang2023superdialseg} ---
+\texttt{RoBERTa-style Online}.}
+A \texttt{roberta-base} token classifier trained on the SuperDialseg training
+split: AdamW, learning rate $1\times10^{-5}$, batch 8, weight decay
+$1\times10^{-3}$, gradient clipping $1.0$, 20 epochs with early stopping on
+validation Score (patience $=$ epochs$/2$, best checkpoint retained), no LR
+schedule, sliding window of 20 utterances with stride 1, at most 25 word-pieces
+per utterance, at most 512 per window, seed 42. Weights are unchanged from that
+training run; only inference differs. Offline inference decides utterance $g$
+by averaging the logits of every stride-1 window containing $g$, including
+windows reaching up to 19 utterances into the future. Online inference decides
+the boundary $(t-1,t)$ once, when $t$ arrives, from the single causal window
+$u_{\max(0,t-W+1)\dots t}$, classifying the second-to-last utterance --- a
+position that carried a live label during training. Lookahead is zero by
+construction (the slice upper bound is $t+1$), one window per turn, no revision.
+On narrative, sentences are treated as utterances.
+
+\paragraph{CSM \citep{xing2021improving} --- \texttt{CSM-style Online}.}
+Coherence scores come from the original coherence network (BERT backbone plus
+MLP head) applied to adjacent sentence pairs, using our own re-trained
+checkpoint. Depth scores use the TextTiling-style left/right peak construction,
+and the threshold is the original $\mathrm{mean} + \alpha\,\mathrm{std}$ with
+$\alpha=1.0$, maintained online by a Welford running estimator, plus the
+original minimum-gap suppression ($\texttt{min\_gap}=2$). The published
+inference computes both peaks over the full score sequence; the streaming
+variant we had used previously bounded the right peak to $d=2$. For the main
+table we set $d=0$, i.e.\ the right peak is dropped entirely and the depth at a
+transition is computed from the left peak alone. This is not a loss:
+$d{=}0$ scores slightly \emph{above} $d{=}2$ (Avg $0.312$ vs $0.308$).
+
+\emph{Checkpoint caveat.} The authors' released checkpoint is not distributed
+(the reproduction script references a file that has no download location) and
+our earlier local copy was lost. The checkpoint used here is our own
+re-training on DailyDialog. That re-training is known to differ from the
+released model: the upstream pseudo-sample generator has no seed (sample counts
+varied by $\sim0.4\%$ across runs) and we fixed three upstream bugs, notably a
+validation routine that never restored training mode, leaving dropout disabled
+for 24k steps. Against the authors' own benchmarks this checkpoint reproduces
+two of three datasets (TIAGE $99.9\%$, SuperDialseg $110.1\%$ of the published
+score) but reaches only $80.4\%$ on DialSeg711 at its best epoch. The shortfall
+is attributable to checkpoint availability, not to the method, and must be
+stated wherever this row is discussed.
+
+% ---------------------------------------------------------------------
+\subsection{Controls}
+\label{app:baselines-controls}
+
+All three controls are online by definition: they use only position, a
+pseudo-random draw, or nothing at all.
+
+\begin{itemize}\itemsep3pt
+\item \textbf{Fixed interval (density-matched).} $k$ boundaries placed at
+      equal spacing over $n$ transitions, deterministic.
+\item \textbf{Random (density-matched).} $k$ of the $n$ transitions chosen
+      uniformly without replacement. The draw is keyed by transition index, so
+      re-asking about an earlier transition returns the same answer --- required
+      for the causality audit to be meaningful. Twenty replicates were generated
+      (seed \texttt{20260803}); the table reports the first, and the dev-3 mean
+      over replicates is $0.2763 \pm 0.0302$, so the single-replicate row should
+      not be read as precise to the third decimal.
+\item \textbf{No boundary.} Predicts nothing. Because $P_k = \mathrm{WD}$ when
+      no boundary is predicted, Score collapses to $0.5(1-P_k)$; this is the
+      degenerate floor against which every row must be read.
+\end{itemize}
+
+\emph{What the density is matched to.} $k$ is set per document to the number of
+boundaries \emph{our own model} predicts on that document, not to the gold
+count --- matching gold would leak the oracle count into the control. On dev-3
+the reference is the M5 prediction dump; on test-3, where no M5 dump exists, the
+reference is the M5-adaptive dump. The controls therefore isolate the
+contribution of \emph{where} boundaries are placed, holding \emph{how many}
+fixed at our own operating point.
+
+\emph{Note.} These are not the same as the similarly named controls in the
+SuperDialseg toolkit, which draw the boundary \emph{count} at random and hence
+do not control density.
+
+% ---------------------------------------------------------------------
+\subsection{Variants measured but excluded from the main table}
+\label{app:baselines-excluded}
+
+Table~\ref{tab:app-excluded} lists configurations that were run and scored but
+are not in Table~\ref{tab:main}, together with the reason. They are reported
+because two of them are \emph{better} than the row we kept, and omitting them
+silently would misrepresent the comparison.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}llrl@{}}
+\toprule
+Method & Config & Avg & Excluded because \\
+\midrule
+TextTiling      & bounded $d{=}22$      & 0.360 & uses 22 sentences of future \\
+Embedding Delta & symmetric $d{=}25$    & 0.315 & uses 25 sentences of future \\
+CSM             & bounded $d{=}2$       & 0.308 & uses future \\
+DialSTART       & $d{=}2$, $c$ tuned    & 0.320 & uses future; $c$ fitted to dev-3 \\
+EM-LLM          & Llama-3.1-8B          & 0.247 & LM-choice control, not the main config \\
+EM-LLM          & Llama-3.1-8B-Instruct & 0.230 & LM-choice control \\
+GraphSeg        & bounded $d{=}6$       & --    & no zero-lookahead form exists \\
+GreedySeg       & bounded $d{=}7$       & --    & no zero-lookahead form exists \\
+\bottomrule
+\end{tabular}
+\caption{Configurations excluded from Table~\ref{tab:main}, with their six-document
+mean Score where applicable. GraphSeg and GreedySeg are dropped entirely: their
+window-graph construction and their batched candidate finalisation are the
+algorithms themselves, so a zero-lookahead version would no longer be the
+published method.}
+\label{tab:app-excluded}
+\end{table}
+
+Additional LLM-prompting variants (GPT-5 and \texttt{gpt-oss-120b} versions of
+the online EventRecall prompt, a memory-system topic-shift prompt, and a
+dialogue-oriented segmentation prompt) were also run; they are omitted to keep
+one representative row per method family.
+
+% ---------------------------------------------------------------------
+\subsection{Methods we could not run, and why}
+\label{app:baselines-unreproducible}
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}p{0.34\columnwidth}p{0.58\columnwidth}@{}}
+\toprule
+Method & Blocking reason \\
+\midrule
+SSC / half-stride \citep{zehe2025assessing} &
+German-only encoder and corpus; training corpus is copyrighted and not
+redistributable \\
+Sentence-pair classifier \citep{zehe2021detecting} &
+same corpus; no released checkpoint \\
+Transfer SSC \citep{kurfali2021breaking} &
+released checkpoint returns HTTP 404; no mirror \\
+Lexical-chain segmentation \citep{barth2021participation} &
+requires a licensed German lexical resource \\
+Direct LLM prompting \citep{michelmann2025large} &
+the reported model has been retired; no comparable number remains \\
+\bottomrule
+\end{tabular}
+\caption{Published methods that could not be reproduced. We did not contact
+authors or request licences; the reasons are recorded instead.}
+\label{tab:app-unrepro}
+\end{table}
+
+For \citet{zehe2025assessing} we cite the \emph{argument} that motivated their
+half-stride inference --- that one-sided context is insufficient for reliable
+boundary decisions --- without reporting their numbers, and we substitute the
+re-implementation of \S\ref{app:baselines-ssc}, clearly marked as ours.
+
+% ---------------------------------------------------------------------
+\subsection{Reproducibility and known limitations}
+\label{app:baselines-limits}
+
+\begin{itemize}\itemsep3pt
+\item \textbf{Single harness.} Every number in Table~\ref{tab:main} is produced
+      by one scorer over one prediction-dump format. Numbers from the original
+      authors' harnesses are never mixed into that table: for the same method
+      and the same checkpoint, moving between harnesses moved TIAGE Score from
+      $0.3081$ to $0.3628$, which is larger than most of the differences we
+      discuss.
+\item \textbf{Our rows and the baseline rows come from different pipelines.}
+      The M5/M4/M8 rows are means over four seeds and are not recomputed from
+      the shared prediction dumps, whereas every baseline row is a single run
+      recomputed from them. Per-seed dumps should be written to the shared
+      location and the whole table recomputed by one runner.
+\item \textbf{Anchor-corpus version.} The SSC re-implementation was trained on
+      the anchor label index containing 10{,}598 documents and 2{,}777{,}561
+      transitions (boundary rate $0.0657$ at the frozen threshold of three of
+      five dimensions changing). The training-setup description in
+      \S\ref{sec:experimental-design} quotes a later build of the anchor corpus.
+      The claim that this row shares our training signal is therefore accurate
+      in kind but not in corpus version.
+\item \textbf{Split protocol.} The SSC re-implementation splits train/validation
+      at the document level; our own models split by author. This makes its
+      validation split easier than theirs.
+\item \textbf{Three development documents.} Every frozen operating point
+      ($c$, thresholds, read-out choices) was selected on three documents. For
+      DialSTART the dev-3 sweep was nearly flat over $c\in[1.0,2.0]$
+      ($0.3254$--$0.3295$), so such a selection would have been unstable; this
+      is one reason the published constant is used instead.
+\item \textbf{Seed sensitivity.} Embedding Delta is seed-sensitive through its
+      codebook (spread $\approx 0.004$ Score). A multi-seed mean would be more
+      appropriate than the single seed reported.
+\item \textbf{No AUC for baselines.} Prediction dumps are binary. Dumping the
+      continuous score alongside the binary decision would make ranking-based
+      diagnostics available for every row.
+\end{itemize}

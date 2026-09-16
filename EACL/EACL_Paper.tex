@@ -1,0 +1,1110 @@
+\section{Related Work}
+\label{sec:related-work}
+
+\paragraph{Segmentation Units}
+Discourse segmentation differs in the unit it seeks to recover. Dialogue topic segmentation detects changes in subject matter, progressing from lexical cohesion in TextTiling \citep{hearst1997text} to neural utterance coherence and topic-aware representations \citep{xing2021improving,gao2023unsupervised}, supervised datasets
+\citep{jiang2023superdialseg}, and LLM-based methods \citep{artemiev2024leveraging,lee2025def}. Topic continuity, however,
+does not imply scene continuity: a narrative may retain the same topic while transitioning into a new scene as its situational elements change. Accordingly, topic-based methods perform poorly on scene segmentation \citep{zehe2021detecting}, which has instead been addressed through embedding changes, sequential classification, and fine-tuned language models \citep{schneider2021detecting,kurfali2021breaking,zehe2025assessing}.
+
+Topic segments and scenes are useful structural units, but neither is defined by how comprehenders incrementally organize experience. Event Segmentation Theory proposes that readers maintain predictive event models and perceive boundaries when prediction fails \citep{zacks2007event}; boundary-related hippocampal activity also predicts later reinstatement during recall \citep{baldassano2017discovering}. The Event-Indexing Model specifies the content of this model as five situation dimensions---\textit{time}, \textit{space}, \textit{protagonist}, \textit{causality}, and \textit{intentionality}---that are updated when discontinuities occur \citep{zwaan1995construction}. We therefore define event boundaries through updates in these dimensions and detect them from the discourse observed so far.
+
+\paragraph{Event-Boundary Signals}
+Existing event-segmentation methods generally reduce boundary evidence to a
+single score or decision. Prediction-based methods use language-model error or surprise \citep{kumar2023bayesian,fountas2025human}; while compatible with online processing, surprise is computed from the language model's predictive distribution and collapses all sources of unpredictability into a single scalar, so the signal indicates that prediction failed without indicating which aspect of the situation changed. LLM-based methods instead generate boundaries directly \citep{michelmann2025large,panela2025event,duarte2024lumberchunker}, but their output is a list of boundary positions that leaves no persistent intermediate representation, and they may rely on document-level or subsequent context.
+
+Situation-aware approaches provide evidence for decomposing this decision.
+\citet{barth2021participation} incorporate temporal, spatial, and entity features, but concatenate them into a single vector for one classifier without maintaining dimension-specific states; the authors report that inspecting the learned trees yielded no insight into how the defining criteria were used. Likewise, \citet{zehe2025assessing} show that separately judging action, location, time, and characters improves prompting, yet these judgments remain transient prompt outputs. In contrast, Hi-OnTop recurrently maintains one latent state for each situation dimension and predicts their transitions separately. It derives boundaries by aggregating dimension-wise change probabilities, preserving what changed while requiring neither future context nor additional LLM calls at inference time.
+
+
+\section{Hi-OnTop: Human-Inspired Online Event Segmentation}
+\label{sec:hi-ontop}
+
+\subsection{Framework Overview}
+\label{sec:framework-overview}
+
+Existing approaches typically reduce representational differences between adjacent sentences to a single scalar boundary signal. In contrast, we propose \textbf{Hi-OnTop}, which decomposes event structure into five situation dimensions---\textit{protagonist}, \textit{space}, \textit{time}, \textit{causality}, and \textit{intentionality}---and performs online event boundary detection by integrating multidimensional boundary signals derived from state changes along these dimensions.
+
+Using a Situation-State Annotated Corpus constructed with an LLM, Hi-OnTop sequentially updates five dimension-specific latent states over frozen sentence representations. Each latent state is trained to encode both the current state of its corresponding dimension and the state transition between adjacent sentences. At inference time, Hi-OnTop determines event boundaries solely by aggregating the dimension-wise state-change probabilities computed from the sentences observed thus far. It therefore requires neither additional LLM calls nor access to future context.
+
+
+\subsection{Multidimensional Situation Representation}
+\label{sec:multidimensional-situation-representation}
+
+Each sentence $x_t$ is encoded by a frozen sentence encoder into an L2-normalized representation $z_t\in\mathbb{R}^{768}$. For each of the five dimensions---protagonist, space, time, causality, and intentionality---Hi-OnTop employs a two-layer feed-forward extractor $E_k:\mathbb{R}^{768}\rightarrow\mathbb{R}^{8}$. The extractor maps the shared sentence representation to the information provided by the current sentence for dimension $k$:
+
+\begin{equation}
+u_t^{(k)}=E_k(z_t)\in\mathbb{R}^{8}.
+\label{eq:3.2.1}
+\end{equation}
+
+For each dimension $k$, Hi-OnTop maintains a latent state $s_t^{(k)}\in\mathbb{R}^{128}$ that accumulates information from the context observed up to time $t$. The initial state is set to $s_0^{(k)}=d_k$, and each updated latent state is L2-normalized. The dimension-specific key $d_k\in\mathbb{R}^{128}$ is independently initialized as $d_k\sim\mathcal{N}(0,0.1^2I_{128})$.
+
+\begin{equation}
+g_t^{(k)}
+=
+\sigma\left(
+\left\langle W_g u_t^{(k)},\,s_{t-1}^{(k)}\right\rangle
++
+\left\langle W_g u_t^{(k)},\,d_k\right\rangle
+\right)
+\label{eq:3.2.2}
+\end{equation}
+
+\begin{equation}
+\widetilde{s}_t^{(k)}
+=
+\operatorname{PReLU}\left(
+W_s s_{t-1}^{(k)}
++
+W_d d_k
++
+W_u u_t^{(k)}
+\right)
+\label{eq:3.2.3}
+\end{equation}
+
+\begin{equation}
+s_t^{(k)}
+=
+\frac{
+s_{t-1}^{(k)}+g_t^{(k)}\widetilde{s}_t^{(k)}
+}{
+\left\|
+s_{t-1}^{(k)}+g_t^{(k)}\widetilde{s}_t^{(k)}
+\right\|_2
+},
+\qquad k=1,\ldots,5.
+\label{eq:3.2.4}
+\end{equation}
+
+The scalar gate $g_t^{(k)}\in(0,1)$ controls the relative influence of the dimension-specific information extracted from the current sentence on the existing state, while $\widetilde{s}_t^{(k)}$ denotes the candidate state update. The parameters $W_s$, $W_d$, $W_u$, and $W_g$, together with the PReLU activation, are shared across the five dimensions. By contrast, the extractors $E_k$ and keys $d_k$ are dimension-specific, allowing each dimension to update its state differently despite sharing the same update parameters.
+
+We refer to the module that combines the dimension-specific sentence representation $u_t^{(k)}$ with the previous latent state $s_{t-1}^{(k)}$, selectively controls the contribution of the candidate update, and produces the new latent state $s_t^{(k)}$ as the recurrent state update.
+
+
+ 
+
+% 어떤 걸로 학습시키는가
+\subsection{Large-Scale Situation-State Annotation}
+\label{sec:large-scale-annotation}
+
+To learn event boundaries as state transitions within coherent narratives, we construct a Situation-State Annotated Corpus. We first curate English narrative fiction from Project Gutenberg into passages containing multiple scene transitions. We then use Qwen3.6-35B-A3B to annotate the absolute states of the five situation dimensions for every sentence.
+
+An absolute state is a dimension-specific state defined solely with respect to the current sentence, without comparison to adjacent sentences. The LLM is queried only for sentence-level states; whether a state has changed is subsequently determined programmatically. This design prevents boundary judgments from leaking into the annotations. The annotation pipeline consists of three stages; the complete prompts are reproduced in Appendix~\ref{app:annotation-prompts}.
+
+\paragraph{Stage 1: Candidate Set Construction.}
+
+The possible values for characters, locations, and goals vary across narratives and therefore cannot be represented by a global label set. We consequently provide the full document once and extract normalized, snake-case identifiers for the \textit{cast}, \textit{protagonist}, \textit{locations}, and \textit{goals}.
+
+The cast contains all characters appearing in the narrative, with first-person narrators normalized to \texttt{narrator}. The protagonist is defined as the single central character whom the narrative primarily follows and is selected from the cast. Locations correspond to distinct physical settings, while goals denote objectives pursued by characters.
+
+These normalized inventories serve as the label spaces used in Stage 2 and the comparison units used in Stage 3. To avoid introducing event-structural information, the prompt prohibits descriptions of event order or structure and restricts outputs related to \textit{boundaries}, \textit{segments}, \textit{changes}, or \textit{scenes}.
+
+\paragraph{Stage 2: Sentence-Level State Assignment.}
+
+Each sentence is annotated independently using the candidate sets obtained in Stage 1 and fixed, dimension-specific enumerations.
+
+For \textit{protagonist}, the primary label indicates whether the central character is present in the current scene, while the narrative perspective of the central acting character is annotated as auxiliary information for absolute-state prediction. \textit{Space} identifies the candidate location in which the described action takes place; a neutral value is assigned when the setting cannot be established from the sentence alone. \textit{Time} indicates whether the sentence begins with a temporal-shift marker expressing a time jump, sequential progression, or simultaneity. Markers appearing mid-sentence, as well as causal or contrastive connectives, are not treated as temporal transitions. \textit{Causality} is represented by the event type expressed by the sentence and by an aspect label indicating whether a new action or state begins, ends, or continues. \textit{Intentionality} identifies the active goal, among the candidate goals, toward which the action in the sentence is actually directed.
+
+All five dimensions are defined so that they can be determined from the current sentence alone. Outputs are restricted through constrained decoding, and a neutral value is assigned whenever the sentence provides insufficient evidence. Labels from previous sentences are never carried over during annotation. In addition, sentence order is independently shuffled for each dimension to prevent contamination from adjacent context.
+
+\paragraph{Stage 3: Transition Target Construction.}
+
+After restoring the sentence-level state labels to their original order, we programmatically apply dimension-specific comparison rules to each pair of adjacent sentences, producing a binary state-change target $\Delta y_t^{(k)}\in\{0,1\}$; the rules are stated in full in Appendix~\ref{app:transition-rules}.
+
+Because \textit{space} and \textit{intentionality} are slowly varying variables whose locations and goals need not be restated in every sentence, neutral values are first replaced by the most recent valid label through carry-forward. A transition is then marked when the resulting values differ. When either side remains neutral because no previous valid value is available, the transition is not treated as a change.
+
+For \textit{protagonist}, a change is marked when the presence status of the central character reverses. For \textit{time}, a change is marked when the current sentence begins with a temporal marker indicating a time jump, sequential progression, or simultaneity. For \textit{causality}, a change is marked when the event type differs from that of the preceding sentence or when the current sentence has an onset aspect.
+
+The resulting corpus contains both sentence-level state labels and dimension-specific state-change targets. Importantly, the five dimensions remain separately annotated and are never collapsed into a single boundary label.
+
+
+
+% 어떻게 학습시키는가
+\subsection{Situation-State Supervision}
+\label{sec:situation-state-supervision}
+
+Hi-OnTop jointly optimizes three training objectives over the shared latent states using the state labels and state-change targets in the Situation-State Annotated Corpus.
+
+\paragraph{State-Change Prediction}
+
+For each dimension $k$, a change head $C_k$ compares adjacent latent states using their concatenation, difference, and element-wise product, and produces a state-change probability $p_t^{(k)}$. This probability is trained against the corresponding state-change target $\Delta y_t^{(k)}$ using binary cross-entropy.
+
+\begin{equation}
+h_t^{(k)}
+=
+\left[
+s_{t-1}^{(k)};
+s_t^{(k)};
+s_t^{(k)}-s_{t-1}^{(k)};
+s_t^{(k)}\odot s_{t-1}^{(k)}
+\right]
+\label{eq:3.4.1}
+\end{equation}
+
+\begin{equation}
+p_t^{(k)}
+=
+\sigma\left(C_k\left(h_t^{(k)}\right)\right)
+\label{eq:3.4.2}
+\end{equation}
+
+\begin{equation}
+\mathcal{L}_{\Delta}^{(k)}
+=
+\operatorname{BCE}\left(
+p_t^{(k)},
+\Delta y_t^{(k)}
+\right).
+\label{eq:3.4.3}
+\end{equation}
+
+\paragraph{State Classification}
+
+To encourage each latent state to retain the state of its corresponding situation dimension, a dimension-specific classifier $A_k$ predicts the state label $y_t^{(k)}$. This objective is applied only to dimensions with globally defined label sets: the protagonist's narrative perspective, the temporal-shift marker for time, and the event type for causality. It is not applied to space or intentionality, whose label spaces are document-specific.
+
+\begin{equation}
+\mathcal{L}_{\mathrm{state}}^{(k)}
+=
+\operatorname{CE}\left(
+A_k\left(s_t^{(k)}\right),
+y_t^{(k)}
+\right)
+\label{eq:3.4.4}
+\end{equation}
+
+\begin{equation}
+k\in\mathcal{K}_{\mathrm{abs}},
+\qquad
+\left|\mathcal{K}_{\mathrm{abs}}\right|=3.
+\label{eq:3.4.5}
+\end{equation}
+
+\paragraph{Next-State Prediction}
+
+For each dimension, a transition model $f_k$ predicts the next latent state from the current latent state. By minimizing the squared Euclidean distance between the predicted and observed next states, this objective directly learns the temporal structure of each dimension in latent space, without reconstructing the shared sentence representation.
+
+We do not apply stop-gradient to the prediction target. Consequently, the objective jointly optimizes both the transition models and the representations that generate the latent states. This formulation, however, admits a trivial solution in which all latent states collapse to the same constant vector. To prevent such collapse, we introduce an anti-collapse penalty that enforces a minimum degree of temporal variability in the latent states of each dimension. The penalty is activated whenever the standard deviation over time falls below $v_{\mathrm{floor}}$.
+
+\begin{equation}
+\mathcal{L}_{\mathrm{pred}}
+=
+\frac{1}{|T|}
+\sum_t
+\sum_{k=1}^{5}
+\left\|
+f_k\left(s_t^{(k)}\right)-s_{t+1}^{(k)}
+\right\|_2^2
+\label{eq:3.4.6}
+\end{equation}
+
+\begin{equation}
+\mathcal{L}_{\mathrm{collapse}}
+=
+\frac{1}{5}
+\sum_{k=1}^{5}
+\left(
+\max\left(
+0,\,
+v_{\mathrm{floor}}
+-
+\operatorname{Std}_t\left[s_t^{(k)}\right]
+\right)
+\right)^2.
+\label{eq:3.4.7}
+\end{equation}
+
+\paragraph{Joint Objective}
+
+The final objective combines the four loss terms using dimension-specific weights $\alpha_k$ and objective-level coefficients:
+
+\begin{equation}
+\begin{aligned}
+\mathcal{L}
+={}&
+\sum_{k=1}^{5}
+\alpha_k\mathcal{L}_{\Delta}^{(k)}
++
+\beta
+\sum_{k\in\mathcal{K}_{\mathrm{abs}}}
+\alpha_k\mathcal{L}_{\mathrm{state}}^{(k)}
+\\
+&+
+\gamma\mathcal{L}_{\mathrm{collapse}}
++
+\lambda_{\mathrm{pred}}\mathcal{L}_{\mathrm{pred}}.
+\end{aligned}
+\label{eq:3.4.8}
+\end{equation}
+
+Because situation dimensions may naturally co-vary, we do not impose a contrastive objective or an orthogonality constraint that explicitly forces separation across dimensions.
+
+
+
+% 어떻게 경계를 내는가
+\subsection{Online Boundary Detection}
+\label{sec:online-boundary-detection}
+
+At inference time, Hi-OnTop computes a transition score $r_t$ by summing the state-change probabilities of the five dimensions at each transition:
+
+\begin{equation}
+r_t = \sum_{k=1}^{5} p_t^{(k)}.
+\label{eq:3.5.1}
+\end{equation}
+
+It then predicts a boundary using a document-specific adaptive threshold based on the running mean $\mu_t$ and standard deviation $\sigma_t$ of the scores observed up to transition $t$:
+
+
+Because the threshold is computed online and reinitialized for each document, Hi-OnTop requires neither future context nor the gold boundary count.
+
+
+\section{Experimental Setup}
+
+\subsection{Datasets}
+(사건 경계는 완결된 서사 안에서만 정의할 수 있고, 본 연구의 평가 대상 또한 짧은 완결 서사이므로, 학습 자료는 분명한 시작과 끝을 가지면서 여러 차례의 장면 전환을 포함할 만큼 길고 한 번에 처리할 수 있을 만큼 짧은 단편으로 구성했다. ← 이건 중복이니까 뺄까 아니면 줄일까) 이를 위해 Project Gutenberg의 영어 텍스트 가운데 short stories 주제가 부여된 단편집을 선별하고, 평가셋 저자와 누적 다운로드 상위 5%의 권을 제외한 뒤 작품 표제를 기준으로 각 권을 개별 편으로 분할했다. 분할된 편에는 소수 다작 작가의 문체와 서사 패턴이 학습을 지배하지 않도록 작가당 최대 20편의 상한을 인물 단위로 적용했으며, 이는 코퍼스 규모를 충분히 유지하면서 저자 편중을 완화하고 시대 다양성도 보존하는 절충안이다. 이후 중복 작품을 제거하고 서지 잡물과 장면 구분선 잔재를 정제한 뒤, 길이와 어휘 기준으로 비서사적이거나 분석에 부적합한 편을 제외했다. 최종적으로 2,969권에서 11,880편, 3,053,830문장을 확보했으며, 작가당 상한에 따른 코퍼스 구성 변화는 Appendix에 제시한다.
+
+| 권 | 2,969 |
+| --- | --- |
+| 편 수 | 11,880 |
+| 문장 | 3,053,830 |
+| 저자 (특정 가능) | 1,316명 |
+- **Corpus Diversity under Per-Author Limits** (appendix에 추가)
+    
+    최종 코퍼스 선별 과정
+    
+    Per-author limits $N$은 한 작가의 작품을 최대 $N$편만 포함하는 규칙으로, 소수 다작 작가의 반복적인 문체와 서사 패턴이 학습을 지배하는 것을 막기 위한 규칙이다. 상한이 없을 때는 상위 100명, 즉 특정 가능한 저자 1,320명의 7.6%가 해당 작품 14,891편의 45.9%를 차지하므로, 작품 수가 적은 다수 저자의 신호가 학습 과정에서 상대적으로 희석될 수 있다. 상한 $N=20$을 적용하면 이 비율이 20.9%로 낮아진다.
+    
+    !image.png
+    
+    그림의 (a)를 보면 per-author limits을 낮출 때 유효 저자 수가 증가해 저자 편중이 완화되지만, 코퍼스 규모가 줄어든다. 이에 (b)의 Δ number of stories / - Δ effective number of authors로 구한 marginal exchange rate의 분포를 참고하여,  교환비가 $N$이 10부터 24인 구간 안에서 평평하므로 그 안에서 규모가 큰 $N=20$을 최종 상한으로 채택한다. 그 선택이 era diversity와 Library of Congress classifications diversity를 낮추지 않는지는 (c)에서 확인한다.
+    
+    **다양성 지표:** 범주별 작품 비율 $p_i$에 역심프슨 지수를 적용하여 계산한다. 값이 클수록 작품이 여러 범주에 고르게 분포하며, 특정 저자, 시대, 문헌 분류에 편중이 작음을 뜻한다.
+    
+    ${}^{2}D=\left(\displaystyle \sum_i p_i^2\right)^{-1},\qquad p_i=\dfrac{n_i}{\sum_j n_j}$
+    
+    **저자 다양성**은 저자별 작품 비율로 계산한 **유효 저자 수**. 단, 저자를 특정할 수 없는 작품 2,423편은  이 지표 계산에서 제외하고 상한도 적용하지 않으며, 코퍼스 구축에는 포함한다.
+    
+    시대 다양성은 저자 출생연도를 십분위로 나눈 10개 구간의 작품 비율로 계산한 **유효 시대 구간**. Project Gutenberg 카탈로그에는 출판연도 필드가 없어 저자 출생연도를 기준으로 작품의 시대를 구분한다. 단, 출생연도가 기재되지 않은 작품 1,540편은 이 지표 계산에서만 제외하며, 상한 적용 시과 코퍼스 구축에는 포함한다.
+    
+    문헌 분류 다양성은 American literature·English literature·Fiction and juvenile belles lettres 등 코퍼스에 나타난 Library of Congress Classification 상위 강목의 작품 비율로 계산한 **유효 문헌 분류 수**. 
+    
+    전체 표
+
+
+\subsection{Baselines}
+
+
+\subsection{Metrics}
+\subsection{Evaluation Metrics}
+\label{sec:metrics}
+
+단일 점수는 경계 배치의 정확성, 분절 입도, 신호의 방향이라는 서로 다른 실패 양상을 하나로 뭉뚱그린다.
+우리는 이를 분리해 관찰하기 위해 세 지표를 보고한다. 형식적 정의는 부록~\ref{app:metrics}에 제시한다.
+
+\paragraph{Score} 순위 지표로 선행 분절 연구\citep{jiang2023superdialseg}가 채택한 복합 점수를 사용한다.
+
+\begin{equation}
+\mathrm{Score} = \frac{2F_1 + (1 - P_k) + (1 - \mathrm{WD})}{4}
+\label{eq:4.3.1}
+\end{equation}
+
+$F_1$은 각 전이 위치의 경계 여부를 $0$과 $1$로 라벨링한 뒤 소수 클래스인 $1$에 대해 계산하는 binary $F_1$이다. 나머지 두 성분은 창 기반 오류율로, $P_k$(Statistical Models for Text Segmentation, Machine Learning 1999)는 크기 $k$의 슬라이딩 창 양 끝 문장이 같은 세그먼트에 속하는지에 대한 예측과 정답의 불일치율이고, WD(A Critique and Improvement of an Evaluation Metric for Text Segmentation, CL 2002)는 동일한 창 안의 경계 \emph{개수}가 일치하는지를 비교하므로 더 엄격하다. $k$는 정답 평균 세그먼트 길이의 절반으로 두며, 점수는 문서 단위로 계산해 평균한다. 다만 경계를 전혀 예측하지 않으면 $P_k = \mathrm{WD}$가 되어 식~\eqref{eq:4.3.1}가 $0.5\,(1-P_k)$로 붕괴하므로, 결과는 이 퇴화 하한과 함께 해석한다.
+
+\paragraph{BOR} Score는 순위를 매기지만 어떻게 틀렸는지는 드러내지 않는다. 경계 과분절 비율(When F1 Fails:Granularity-Aware Evaluation for Dialogue Topic Segmentation, 2025)은 예측 경계 수를 정답 경계 수로 나눈 값으로, $>1$은 과분절, $<1$은 과소분절을 뜻한다. 이는 위 선행 분절 연구가 사용한 경계 개수 MAE를 척도 불변 형태로 바꾼 것에 해당한다. Score가 같아도 $\mathrm{BOR}=1.7$인 시스템과 $0.6$인 시스템은 서로 다른 방식으로 실패하므로, Score는 BOR과 함께 읽는다.
+
+\paragraph{Lift} 예측 경계가 무작위 대비 정보를 담고 있는지를 $L_1 = P(y{=}1 \mid \hat{y}{=}1) / P(y{=}1)$로 확인한다. 분자는 경계를 예측한 위치에서의 정밀도, 분모는 전체 전이 위치에서의 경계 기저 밀도이며, 전 문서의 전이를 이어 붙여 계산한다. 이는 연관 규칙 마이닝의 interest 척도(Dynamic Itemset Counting and Implication Rules for Market Basket Data, SIGMOD 1997)와 동일하다. 예측 경계 수와 무관하게 정규화되므로 BOR이 서로 다른 시스템 간에도 비교 가능하다. $L_1 = 1$은 무작위 배치와 동등함을, $L_1 < 1$은 예측 위치가 오히려 경계일 확률이 낮은 역신호를 뜻한다.
+
+
+\subsection{Experimental Design}
+\label{sec:experimental-design}
+
+\paragraph{(i) Situation-State Annotation Quality}
+We evaluate the situation-state annotations along two axes: their utility for segmentation and the
+validity of the state labels themselves. For \emph{segmentation utility}, we re-annotate the three
+development narratives (Pieman, Tunnel, Monkey) with two alternative annotator models,
+\texttt{gpt-oss-120b} and \texttt{Gemma-4-26B-A4B}, holding the annotation prompt, the decoding
+settings and the five dimensions fixed at the values used for the frozen annotator
+(\texttt{Qwen3.6-35B-A3B}, FP8, reasoning disabled, temperature $0$, batch $20$, constrained
+decoding). Each set of labels is then converted to boundaries by the same rule---a transition is a
+boundary when at least three of the five dimensions change---and scored with the same metric, so
+that any difference is attributable to the annotator alone. The adoption criterion, a mean Score
+improvement of at least $+0.03$ over the frozen annotator, was registered before the comparison was
+run. For \emph{label validity}, we draw 100 review items stratified over the five dimensions
+(20 per dimension, further stratified by dialogue density and by the rate of neutral values) and
+have a human rater label each item blind: the sentence and its context are shown while the model's
+assignment is hidden, and the two are compared only afterwards. The scoring rubric and the pass
+threshold, at most 20\% model-wrong per dimension, were frozen before the items were generated. The
+first measurement asks what signal the annotations provide for boundary prediction; the second
+validates the sentence-level absolute states the LLM assigns, independently of any boundary.
+
+\paragraph{(ii) Segmentation Evaluation}
+Hi-OnTop uses \texttt{paraphrase-multilingual-mpnet-base-v2} as a frozen sentence encoder and maps
+each L2-normalised 768-dimensional sentence representation to five 128-dimensional latent states.
+The learnable factored situation encoder, state-change predictors and dimension-specific transition
+models comprise 1.43M parameters over the frozen 278M-parameter encoder. All three models are
+trained on the same anchor corpus of 11{,}836 Project Gutenberg short stories
+(3{,}013{,}224 transitions, anchor boundary rate $0.0660$), labelled by a frozen open-weight LLM
+prompt; no human boundary annotation is used for training. Documents are split \emph{by author}
+into 10{,}430 training and 1{,}406 validation documents, so that no author or book appears on both
+sides. M4 and M5 are optimised with Adam (learning rate $3\times10^{-4}$, batch 48, slot dimension
+128) and M8 with the same optimiser and learning rate at batch 8192, in all cases for at most 100
+epochs with early stopping on validation loss (patience 3); the best-epoch weights are restored
+before evaluation, and we report the mean over four seeds ($0$--$3$). Next-state prediction is
+carried out in the shared observation space: each dimension's transition model predicts the next
+sentence representation, and the resulting prediction errors are averaged over dimensions.
+
+Segmentation quality is measured against human-annotated boundaries in the deployable setting: the
+gold boundary count is never used to set the threshold, so every system decides for itself how many
+boundaries a document contains. Every system in the online comparison decides each boundary from
+the sentences observed up to that point. For Hi-OnTop, a transition is marked when its score
+reaches the running mean plus one running standard deviation of the scores observed so far in the
+same document, the current score included; the first transition of a document is never marked.
+Thresholds are maintained per document and reset at document boundaries.
+
+The three models differ only in latent structure and supervision signal: M5 maintains five typed
+slots and predicts five axis resets, scoring a transition by $s=\sum_k P(\text{reset}_k)$; M4 is
+identical except that a single shared latent feeds the same five heads; and M8 discards the axis
+decomposition entirely, training an MLP on a single binary boundary label derived from the same
+anchor labels and scoring by $s=P(\text{boundary})$. M5 and M4 are therefore trained without any
+boundary-shaped target, whereas M8 is trained on one derived from the same LLM annotations.
+
+\paragraph{(iii) Downstream Evaluation}
+We test whether better boundaries translate into better memory-augmented reading. EM-LLM's
+episodic-memory pipeline is kept unchanged and only its segmenter is replaced, so that retrieval,
+memory management and the backbone language model are identical across conditions and any
+difference is attributable to the boundaries alone. Evaluation covers LongBench (English, 15 tasks,
+3{,}550 items) and $\infty$-Bench (6 tasks). Alongside the surprisal segmenter we include three
+controls that isolate what the boundaries contribute: count-matched random boundaries, a boundary
+at every sentence, and uniform 128-token chunks with no segmentation. Differences are assessed by
+paired bootstrap over items with 95\% confidence intervals, and conditions whose intervals overlap
+are treated as tied.
+
+\section{Analysis}
+
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\label{tab:main}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lll rrr @{\hspace{6pt}} rrr @{\hspace{6pt}} rrr @{\hspace{6pt}} rrr @{\hspace{6pt}} rrr @{\hspace{6pt}} rrr @{\hspace{6pt}} rrr@{}}
+\toprule
+& & & \multicolumn{3}{c}{\textbf{Pieman}} & \multicolumn{3}{c}{\textbf{Tunnel}} & \multicolumn{3}{c}{\textbf{Monkey}} & \multicolumn{3}{c}{\textbf{Run}} & \multicolumn{3}{c}{\textbf{GoHitler}} & \multicolumn{3}{c}{\textbf{MyMothersLife}} & \multicolumn{3}{c}{\textbf{Avg}} \\
+\cmidrule(lr){4-6} \cmidrule(lr){7-9} \cmidrule(lr){10-12} \cmidrule(lr){13-15} \cmidrule(lr){16-18} \cmidrule(lr){19-21} \cmidrule(lr){22-24}
+\textbf{Setting} & \textbf{Supervision} & \textbf{Method}
+& Score$\uparrow$ & BOR$\,{\to}\,1$ & Lift$\uparrow$
+& Score$\uparrow$ & BOR$\,{\to}\,1$ & Lift$\uparrow$
+& Score$\uparrow$ & BOR$\,{\to}\,1$ & Lift$\uparrow$
+& Score$\uparrow$ & BOR$\,{\to}\,1$ & Lift$\uparrow$
+& Score$\uparrow$ & BOR$\,{\to}\,1$ & Lift$\uparrow$
+& Score$\uparrow$ & BOR$\,{\to}\,1$ & Lift$\uparrow$
+& Score$\uparrow$ & BOR$\,{\to}\,1$ & Lift$\uparrow$ \\
+\midrule
+\multirow{8}{*}{\textbf{NES}}
+& \multirow{1}{*}{\textit{Unsupervised}}
+& EmbeddingDelta-style Online$^{\dagger}$
+& 0.271 & 0.39 & 0.75
+& 0.283 & 2.28 & 0.68
+& 0.332 & 1.00 & 1.36
+& 0.280 & 2.57 & 0.59
+& 0.345 & 1.77 & 1.12
+& 0.404 & 2.06 & 1.62
+& 0.319 & 1.68 & 1.02 \\
+\addlinespace
+\cmidrule(l){2-24}
+
+& \multirow{2}{*}{\textit{Weakly supervised}}
+& SITUATE
+& 0.389 & 0.39 & 2.26
+& 0.405 & 1.89 & \textbf{5.75}
+& 0.352 & 0.90 & 2.89
+& 0.305 & 0.71 & 0.00
+& \textbf{0.484} & 0.62 & \textbf{3.50}
+& \textbf{0.493} & 0.75 & \textbf{3.56}
+& 0.405 & 0.88 & 2.99 \\
+
+& 
+& Direct-Boundary
+& 0.402 & 0.39 & 2.64
+& \textbf{0.426} & 1.89 & \textbf{5.75}
+& \textbf{0.421} & 0.90 & \textbf{3.39}
+& 0.270 & 0.71 & 0.00
+& 0.454 & 0.62 & 3.23
+& 0.478 & 0.75 & \textbf{3.56}
+& \textbf{0.408} & 0.88 & \textbf{3.10} \\
+\addlinespace
+\cmidrule(l){2-24}
+
+& \multirow{1}{*}{\textit{Supervised}}
+& SSC-style Online (our anchors)$^{\ddagger}$
+& 0.234 & 0.06 & 0.00
+& 0.375 & 0.11 & 13.97
+& 0.286 & 0.00 & --
+& 0.351 & 0.14 & 0.00
+& 0.376 & 0.08 & 8.62
+& 0.312 & 0.00 & --
+& 0.322 & 0.06 & 5.65 \\
+\addlinespace
+\cmidrule(l){2-24}
+
+& \multirow{4}{*}{\textit{LLM-based}}
+& EM-LLM
+& 0.356 & 0.50 & 1.17
+& 0.223 & 3.28 & 0.47
+& 0.231 & 1.60 & 0.57
+& 0.277 & 1.64 & 0.93
+& 0.288 & 1.00 & 1.33
+& 0.270 & 1.25 & 0.53
+& 0.274 & 1.55 & 0.83 \\
+
+& 
+& BayesSurprise
+& 0.358 & 1.11 & 1.06
+& 0.190 & 4.28 & 1.09
+& 0.251 & 2.93 & 1.08
+& 0.321 & 1.29 & 1.18
+& 0.282 & 1.00 & 0.66
+& 0.339 & 1.44 & 1.39
+& 0.290 & 2.01 & 1.08 \\
+
+& 
+& EventRecall-style Online (GPT-4.1)
+& 0.434 & 0.22 & 3.96
+& 0.402 & 0.44 & 6.99
+& 0.366 & 0.30 & 3.01
+& \textbf{0.458} & 0.50 & \textbf{3.04}
+& 0.363 & 0.31 & 2.15
+& 0.381 & 0.44 & 1.53
+& 0.401 & 0.37 & 3.45 \\
+
+& 
+& EventRecall-style Online (GPT-5)
+& 0.432 & 0.22 & 3.96
+& 0.422 & 0.28 & 11.18
+& 0.320 & 0.30 & 1.51
+& 0.329 & 0.00 & --
+& 0.286 & 0.00 & --
+& 0.312 & 0.00 & --
+& 0.350 & 0.13 & 5.55 \\
+\midrule
+\multirow{5}{*}{\textbf{DTS}}
+& \multirow{3}{*}{\textit{Unsupervised}}
+& TextTiling
+& 0.247 & 0.94 & 0.31
+& 0.217 & 3.17 & 2.45
+& 0.220 & 2.87 & 1.10
+& 0.278 & 1.86 & 0.82
+& 0.355 & 2.00 & 1.33
+& 0.312 & 2.00 & 1.00
+& 0.271 & 2.14 & 1.17 \\
+
+& 
+& TextTiling-style Online
+& 0.269 & 0.11 & 0.00
+& 0.286 & 1.83 & 3.39
+& 0.240 & 2.13 & 0.85
+& 0.257 & 0.50 & 0.00
+& 0.380 & 0.77 & 1.72
+& 0.293 & 0.69 & 0.00
+& 0.287 & 1.01 & 0.99 \\
+
+& 
+& DialSTART-style Online$^{\dagger}$
+& 0.404 & 1.61 & 1.46
+& 0.121 & 7.78 & 0.60
+& 0.192 & 4.03 & 0.90
+& 0.277 & 3.07 & 1.73
+& 0.316 & 2.15 & 1.23
+& 0.210 & 3.06 & 0.65
+& 0.253 & 3.62 & 1.09 \\
+\addlinespace
+\cmidrule(l){2-24}
+
+& \multirow{2}{*}{\textit{Supervised}}
+& RoBERTa-style Online
+& 0.326 & 1.06 & 1.11
+& 0.255 & 3.33 & 1.86
+& 0.259 & 2.40 & 1.13
+& 0.380 & 1.14 & 1.33
+& 0.337 & 1.92 & 1.38
+& 0.352 & 1.25 & 1.07
+& 0.318 & 1.85 & 1.31 \\
+
+& 
+& CSM-style Online
+& \textbf{0.521} & 0.94 & \textbf{2.48}
+& 0.151 & 7.33 & 1.48
+& 0.236 & 3.40 & 1.06
+& 0.233 & 2.14 & 1.06
+& 0.349 & 2.00 & 1.66
+& 0.380 & 2.31 & 2.31
+& 0.312 & 3.02 & 1.68 \\
+\midrule
+\multirow{3}{*}{\textbf{Controls}}
+& 
+& Fixed interval (density-matched)
+& 0.295 & 0.39 & 1.51
+& 0.258 & 1.83 & 2.54
+& 0.273 & 0.90 & 1.51
+& 0.262 & 1.71 & 1.33
+& 0.319 & 1.38 & 0.96
+& 0.263 & 1.88 & 1.43
+& 0.278 & 1.35 & 1.54 \\
+
+& 
+& Random (density-matched)
+& 0.335 & 0.39 & 1.51
+& 0.230 & 1.83 & 0.00
+& 0.293 & 0.90 & 1.00
+& 0.331 & 1.71 & 1.77
+& 0.310 & 1.38 & 0.96
+& 0.261 & 1.88 & 1.43
+& 0.293 & 1.35 & 1.11 \\
+
+& 
+& No boundary
+& 0.250 & -- & --
+& 0.301 & -- & --
+& 0.286 & -- & --
+& 0.329 & -- & --
+& 0.286 & -- & --
+& 0.312 & -- & --
+& 0.294 & -- & -- \\
+\bottomrule
+\end{tabular}}
+\caption{Event segmentation on the six human-annotated narratives; Avg is the mean over the six
+works. Methods are organised by task lineage (\emph{Setting}) and by \emph{Supervision}. Naming
+follows the origin of each method: \emph{X} is the published method run as-is, and \emph{X-style
+Online} is our online adaptation of a method whose original formulation uses future context;
+methods already online in their original form (EM-LLM, BayesSurprise) keep their plain name. \textbf{Every online row is strictly zero-lookahead}: a boundary is fixed the
+moment the following sentence arrives, and we verify this by measuring emission delay rather than
+trusting the method's name. Bounded-lookahead variants are therefore excluded from this table.
+GraphSeg and GreedySeg are omitted because their window graph and candidate accumulation are
+constitutive of the algorithms, so a zero-lookahead version would no longer be the published
+method. Every method chooses its own number of boundaries---none is told how many boundaries a
+document contains. Best per column in bold among non-control rows; BOR is never bolded because it
+is best when closest to $1$, not when largest. Ours is listed as unsupervised because no human
+boundary annotation is used in training; the anchor labels are LLM-generated (distant
+supervision). \emph{Caveat}: our rows are means over 4 seeds under the online adaptive threshold
+$s_t \ge \mu_{<t}+\sigma_{<t}$, whereas baselines are single runs, so the two families are not
+matched for seed variance. $^{\dagger}$Marks adaptations that depart from the published method
+\emph{definition} and are therefore not comparable to the originally reported numbers:
+DialSTART's fixed top-$k$ readout, which pins the boundary count to a constant regardless of
+document length, is replaced by the running $\mu+c\sigma$ threshold used by the other
+threshold-based baselines at their published constant $c=0.5$ (no tuning on our data), and its
+depth search is made causal; EmbeddingDelta shrinks the right window to the
+single arriving sentence, breaking the symmetric $\pm25$-sentence window that defines the
+original. $^{\ddagger}$Not a published baseline but our own reimplementation: the three published
+supervised scene segmenters (BERT-SSC / half-stride, BERT-Context, TSE) are German-only---no
+English checkpoint exists and their training corpus is licensed German fiction---so we instead
+train the SSC architecture on our own anchor labels with a \texttt{roberta-base} encoder, the same
+backbone as the supervised DTS rows and the same training signal as our models, and drop Half
+Stride, which merges predictions from windows extending to the right and is therefore not
+zero-lookahead. Under the published argmax readout it fires on almost nothing (3 predicted
+boundaries per split), which is precisely the failure mode Half Stride was introduced to fix.
+Two rows are degenerate and must not be read as scores. EventRecall (GPT-5) predicts no
+boundary at all on Run, GoHitler and MyMothersLife, so its Score there is numerically identical to
+the \emph{No boundary} row and its six-work average mixes three real results with three degenerate
+floors; SSC-style Online predicts six boundaries in total across all six works. Because Lift is a
+ratio evaluated only at predicted positions, it explodes when very few boundaries are predicted
+(13.97 from two predictions in one case), so a Lift cell is excluded from bolding when
+$\mathrm{BOR} < 0.5$; the values themselves are still reported.
+\emph{No boundary} is the trivial baseline that predicts no boundary at all, for which
+only Score is defined---note that Score degenerates to $0.5\,(1-P_k)$ there, so it should be read
+as each work's degenerate floor rather than compared across works.}
+\end{table*}
+
+\paragraph{Hi-OnTop detects event boundaries more accurately than online baselines.}
+
+\paragraph{Decomposing the boundary signal into five dimensions outperforms a single merged signal.}
+
+\paragraph{Dimension changes predict human boundaries beyond surface structural cues.}
+
+\paragraph{Hi-OnTop matches surprisal-based segmentation on downstream memory without computing token-level LLM surprisal.}
+Replacing EM-LLM's surprisal segmenter with Hi-OnTop leaves LongBench performance
+statistically unchanged (51.77 vs.\ 51.71; $\Delta = +0.06$, 95\% CI $[-0.32, +0.43]$,
+paired bootstrap over 3{,}550 items). The three best conditions (51.71--51.77) are tied
+within error and every remaining condition falls below them. We therefore do \emph{not}
+claim an improvement: no Hi-OnTop variant significantly exceeds the surprisal baseline.
+What the swap does establish is that the boundaries can be produced by a 5.7M-parameter
+segmenter over sentence embeddings instead of per-token surprisal from the 8B backbone,
+at no measurable cost in downstream accuracy.
+
+We state two caveats explicitly. First, the largest per-task gain, NarrativeQA
+($+1.79$), has a 95\% CI of $[-0.12, +3.89]$ and was identified only after inspecting
+all fifteen tasks; selecting the best of seven Hi-OnTop variants is post-hoc. Second,
+on $\infty$-Bench the ordering reverses --- surprisal leads on the six-task mean
+(66.93 vs.\ 64.34), driven by key--value retrieval (97.80 vs.\ 86.60), and the
+long-form multiple-choice task En.MC also favours surprisal ($-2.07$). The
+pre-registered tie-breaker for the narrative hypothesis, $\infty$-Bench En.QA, has not
+been run.
+
+\begin{table*}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccccccccccccccc}
+\toprule
+Segmenter & Avg & NarrQA & Qasper & MFQA & HotpotQA & 2Wiki & MuSiQue & GovRep & QMSum & MultiNews & TREC & TriviaQA & SAMSum & PsgRet & LCC & RepoB \\
+\midrule
+EM-LLM$_S$ (surprisal) & 51.71 & 25.72 & 45.17 & 52.29 & \textbf{53.71} & \textbf{47.76} & \textbf{25.71} & 34.93 & 24.18 & 27.90 & 72.00 & 91.92 & 43.68 & \textbf{99.50} & 67.22 & 63.93 \\
+Hi-OnTop (ours) & \textbf{51.77} & \textbf{27.51} & 45.27 & 52.75 & 53.05 & 47.03 & 25.10 & \textbf{35.20} & 24.37 & 27.88 & \textbf{73.00} & 91.92 & \textbf{43.78} & 97.50 & \textbf{67.41} & \textbf{64.71} \\
+\midrule
+Random (count-matched) & 51.36 & 25.79 & \textbf{45.38} & \textbf{52.99} & 52.94 & 45.75 & 24.09 & 34.85 & \textbf{24.58} & 27.86 & 71.50 & \textbf{92.16} & 43.32 & 98.00 & 67.07 & 64.18 \\
+Every sentence & 51.32 & 25.64 & 45.03 & 52.28 & 53.36 & 45.82 & 22.53 & 34.69 & 24.52 & \textbf{27.99} & 72.00 & 91.84 & 43.59 & 98.50 & 67.28 & 64.70 \\
+No segmentation (uniform 128) & 51.19 & 26.14 & 45.13 & 52.31 & 52.98 & 45.48 & 23.88 & 34.70 & 24.40 & 27.91 & 71.50 & 91.91 & 43.21 & 97.00 & 67.16 & 64.08 \\
+\bottomrule
+\end{tabular}
+\caption{LongBench (English, 15 tasks, 3{,}550 items) with EM-LLM's memory pipeline and
+Llama-3.1-8B-Instruct held fixed; only the segmenter varies. Hi-OnTop and surprisal are
+tied within a paired-bootstrap CI that covers zero; both clear the three degenerate
+controls. Bold marks the column maximum.}
+\label{tab:longbench-swap}
+\end{table*}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+$\infty$-Bench task ($n$) & EM-LLM$_S$ & Hi-OnTop \\
+\midrule
+Passkey (590) & 100.00 & 100.00 \\
+Number string (590) & 100.00 & 100.00 \\
+KV retrieval (500) & \textbf{97.80} & 86.60 \\
+Code debug (394) & 22.59 & 22.59 \\
+Math find (350) & \textbf{34.57} & 32.29 \\
+En.MC (229) & \textbf{46.61} & 44.54 \\
+\midrule
+Mean & \textbf{66.93} & 64.34 \\
+\bottomrule
+\end{tabular}
+\caption{$\infty$-Bench, same swap. The ordering reverses relative to
+Table~\ref{tab:longbench-swap}: surprisal leads, mostly through key--value retrieval.
+The pre-registered narrative tie-breaker En.QA was not run.}
+\label{tab:infbench-swap}
+\end{table}
+
+\subsection{Ablation Study}
+
+
+\appendix
+
+\section{Situation-State Annotation Prompts}
+\label{app:annotation-prompts}
+
+This appendix reproduces the complete prompts behind the three annotation stages of
+\S\ref{sec:large-scale-annotation}, in the order in which that section describes them:
+Box~A.1 is Stage 1 (candidate set construction), Box~A.2 is the Stage-2 envelope shared by
+all five dimensions, and Boxes~A.3--A.7 are the dimension-specific field blocks, one per
+dimension in the order \textit{protagonist}, \textit{space}, \textit{time},
+\textit{causality}, \textit{intentionality}. The comparison rules of Stage 3 follow in
+Appendix~\ref{app:transition-rules}. Table~\ref{tab:annotation-config} lists the
+configuration these prompts were run under; the same prompts, decoding settings and code
+path were reused unchanged for the annotator-swap check in \S\ref{sec:experimental-design}.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+Setting & Value \\
+\midrule
+Prompt version & \texttt{p0s5-eism-v3.1} \\
+Annotator & Qwen3.6-35B-A3B (FP8, no thinking) \\
+Decoding & temperature $0$, JSON-schema constrained \\
+Stage-1 calls & 1 per document (max.\ 8{,}000 tokens) \\
+Stage-2 calls & 1 per dimension per batch of 20 \\
+ & sentences (max.\ 10{,}000 tokens) \\
+Sentence order & shuffled per dimension, seed \\
+ & $20260711 + \mathrm{index}(k)$ \\
+\bottomrule
+\end{tabular}
+\caption{Annotation configuration. All values were frozen before any comparison against
+human boundaries.}
+\label{tab:annotation-config}
+\end{table}
+
+\paragraph{How to read the boxes.}
+Each box gives one request exactly as it is sent: the system message, the user message,
+the slots that the pipeline fills in, and the JSON schema that constrains the reply. A
+slot in double braces is substituted programmatically, and the Stage-1 inventories are
+compiled into the schema of the corresponding Stage-2 call, so a value outside the closed
+list is not merely discouraged but unrepresentable; a reply violating the schema is
+rejected and resampled. Because the Stage-2 envelope (Box~A.2) is byte-identical across
+the five dimensions, it is shown once and the dimension-specific field blocks follow in
+Boxes~A.3--A.7.\footnote{The prompts are reproduced verbatim except for whitespace: source
+line breaks are reflowed to fit the column. Em dashes are rendered as \texttt{--}, and the
+two Korean connectives listed as examples in \texttt{causal\_marker}---residue from an
+earlier bilingual pilot---are romanized as \texttt{ttaemune} (`because') and
+\texttt{geuraeseo} (`so'); they never match the English corpus. The boxes are generated
+directly from the annotation code (\texttt{llm\_s5\_states.py -{}-dump-prompts}), not
+transcribed by hand.}
+
+\paragraph{Primary and auxiliary labels.}
+Each box marks which of its fields is the \emph{primary} label---the one Stage 3 compares
+to produce $\Delta y_t^{(k)}$---and which are auxiliary. Beyond the narrative perspective
+named in \S\ref{sec:large-scale-annotation}, three further auxiliary fields are requested
+and stored without entering any target: the cast subset present in the sentence
+(\texttt{characters\_present}, an ablation column on the protagonist dimension), the
+dominant grammatical tense (\texttt{tense}, on time), and the explicit causal connective
+(\texttt{causal\_marker}, on causality). They are reported here so that the prompts are
+complete. Requesting them alongside the primary label keeps one call per dimension, and
+since every field is judged from the current sentence alone, their presence cannot leak
+comparative information into the primary label.
+
+% AUTO-GENERATED -- do not hand-edit. Regenerate with:
+%   python scripts/eacl_phase0/llm_s5_states.py --dump-prompts --dump-format latex --prompt-version v3.1
+% prompt_version = p0s5-eism-v3.1   fixes = {space_H, time_E, time_conseq, time_first}
+% ASCII substitutions for verbatim: — -> --, 때문에 -> ttaemune, 그래서 -> geuraeseo
+
+\vspace{0.6em}
+\noindent\rule{\columnwidth}{0.8pt}\\[-0.4em]
+{\footnotesize\textbf{Box A.1: Stage 1: Candidate Set Construction}}\\[-0.7em]
+\noindent\rule{\columnwidth}{0.4pt}
+\nopagebreak
+{\footnotesize
+\begin{verbatim}
+[System]
+You enumerate the entities present in a text as normalized
+  identifiers. You never discuss structure, order, or
+  boundaries.
+
+[User]
+Below is a complete narrative. List the entities it contains,
+  as normalized snake_case identifiers. Do not describe
+  events, order, or structure.
+
+- cast: every distinct person/character that appears anywhere
+    in the narrative (e.g. narrator, roommate, store_clerk,
+    dean). Use `narrator` for the first-person teller.
+- protagonist: the single central character the narrative is
+    primarily about (one id from cast). EISM designates
+    exactly one protagonist per story.
+- locations: every distinct physical setting that appears
+    (e.g. bedroom, convenience_store, campus).
+- goals: every distinct goal/intention pursued by anyone (e.g.
+    get_the_story, avoid_getting_caught).
+
+Return only these lists. Do not mention boundaries, segments,
+  changes, or scenes.
+
+NARRATIVE:
+{{STORY}}
+
+[Slots]
+- {{STORY}}: the full text of one document
+
+[Response schema]
+{
+  "cast":        array of string
+  "protagonist": string
+  "locations":   array of string
+  "goals":       array of string
+}  // all keys required, no others allowed
+\end{verbatim}
+}
+\vspace{-0.7em}
+\noindent\rule{\columnwidth}{0.8pt}
+\vspace{0.2em}
+{\footnotesize\textit{One call per document. The normalized inventories it returns serve as the label spaces used in Stage 2 and the comparison units used in Stage 3. To avoid introducing event-structural information, the prompt prohibits descriptions of event order or structure and restricts outputs related to boundaries, segments, changes, or scenes.}}
+\vspace{0.6em}
+
+\vspace{0.6em}
+\noindent\rule{\columnwidth}{0.8pt}\\[-0.4em]
+{\footnotesize\textbf{Box A.2: Stage 2: Sentence-Level State Assignment (shared envelope)}}\\[-0.7em]
+\noindent\rule{\columnwidth}{0.4pt}
+\nopagebreak
+{\footnotesize
+\begin{verbatim}
+[System]
+You assign fixed categorical labels to one sentence at a time
+  from a closed list. You never compare sentences and never
+  output free text.
+
+[User]
+Label the {{DIMENSION}} state expressed by each TARGET
+  sentence, independently. Choose exactly one value per field
+  from its fixed list (arrays may be empty).
+
+Fields:
+{{FIELD_BLOCK}}
+
+Items are shuffled and unrelated. Never compare items to each
+  other. Do not reason about documents, stories, transitions,
+  order, continuity, novelty, changes, resets, or boundaries.
+  Judge each TARGET sentence on its own -- interpret what this
+  sentence depicts, do not merely string-match for keywords.
+  Use the neutral token (none/unspecified/absent) only when
+  this sentence gives no basis at all. Never carry a value
+  over from another item. Return exactly one result per
+  item_id.
+
+ITEM 0
+TARGET: {{SENTENCE_0}}
+
+ITEM 1
+TARGET: {{SENTENCE_1}}
+
+[... one batch of items per call]
+
+[Slots]
+- {{DIMENSION}}: protagonist | space | time | causality |
+    intentionality
+- {{FIELD_BLOCK}}: that dimension's field block
+- {{SENTENCE_i}}: one sentence, in the order shuffled for this
+    dimension
+\end{verbatim}
+}
+\vspace{-0.7em}
+\noindent\rule{\columnwidth}{0.8pt}
+\vspace{0.2em}
+{\footnotesize\textit{Byte-identical for all five dimensions; substituting the dimension name and its field block reconstructs the exact request sent to the annotator. Each sentence is annotated independently, no label is carried over from another sentence, and the sentence order is the one shuffled for that dimension.}}
+\vspace{0.6em}
+
+\vspace{0.6em}
+\noindent\rule{\columnwidth}{0.8pt}\\[-0.4em]
+{\footnotesize\textbf{Box A.3: Stage 2 field block --- protagonist}}\\[-0.7em]
+\noindent\rule{\columnwidth}{0.4pt}
+\nopagebreak
+{\footnotesize
+\begin{verbatim}
+[Field block: protagonist]
+characters_present: the subset of this cast that appears/acts
+  in THIS sentence; [] if none. Choose only from: [{{CAST}}].
+perspective: grammatical person of the central
+  actor/experiencer in THIS sentence (first/second/third);
+  none if no person.
+protagonist_present: true if the grammatical
+  subject/experiencer of THIS sentence is the designated
+  protagonist `{{PROTAGONIST}}`, otherwise false.
+
+[Slots]
+- {{CAST}}: the Stage-1 cast, comma-joined
+- {{PROTAGONIST}}: the Stage-1 protagonist id
+
+[Labels]
+- primary: protagonist_present -- whether the central
+    character is present
+- auxiliary (recorded, not used as a target): perspective,
+    characters_present
+
+[Response schema] the reply is {"items": [<item>, ...]}, one
+    <item> per ITEM:
+{
+  "item_id":             integer
+  "characters_present":  array of enum[{{CAST}}]
+  "perspective":         enum[first, second, third, none]
+  "protagonist_present": boolean
+}  // all keys required, no others allowed
+\end{verbatim}
+}
+\vspace{-0.7em}
+\noindent\rule{\columnwidth}{0.8pt}
+\vspace{0.2em}
+{\footnotesize\textit{Substituted into the envelope of Box A.2. Primary label: whether the central character is present in the current scene. The narrative perspective of the central acting character is annotated as auxiliary information for absolute-state prediction; the cast subset is retained as an ablation column only.}}
+\vspace{0.6em}
+
+\vspace{0.6em}
+\noindent\rule{\columnwidth}{0.8pt}\\[-0.4em]
+{\footnotesize\textbf{Box A.4: Stage 2 field block --- space}}\\[-0.7em]
+\noindent\rule{\columnwidth}{0.4pt}
+\nopagebreak
+{\footnotesize
+\begin{verbatim}
+[Field block: space]
+location: the STAGE this sentence depicts -- where the
+  narrated action is set. You are NOT looking for a place
+  word: pick the stage even if no place noun appears (e.g. 'he
+  tossed in bed' -> bedroom). A place that is only MENTIONED
+  -- talked about or recalled -- is NOT the stage. Judge ONLY
+  this sentence's own content: do NOT infer the stage from
+  neighboring sentences, earlier context, or where the
+  character 'must' be. If this sentence alone gives no stage
+  (a bare emotion, an isolated reflection, a body part with no
+  setting), you MUST answer unspecified. Choose only from:
+  [{{LOCATIONS}}, unspecified].
+
+[Slots]
+- {{LOCATIONS}}: the Stage-1 locations, comma-joined
+
+[Labels]
+- primary: location -- the candidate location in which the
+    action takes place
+
+[Response schema] the reply is {"items": [<item>, ...]}, one
+    <item> per ITEM:
+{
+  "item_id":  integer
+  "location": enum[{{LOCATIONS}}, unspecified]
+}  // all keys required, no others allowed
+\end{verbatim}
+}
+\vspace{-0.7em}
+\noindent\rule{\columnwidth}{0.8pt}
+\vspace{0.2em}
+{\footnotesize\textit{Substituted into the envelope of Box A.2. Identifies the candidate location in which the described action takes place. The neutral value unspecified is assigned when the setting cannot be established from the sentence alone.}}
+\vspace{0.6em}
+
+\vspace{0.6em}
+\noindent\rule{\columnwidth}{0.8pt}\\[-0.4em]
+{\footnotesize\textbf{Box A.5: Stage 2 field block --- time}}\\[-0.7em]
+\noindent\rule{\columnwidth}{0.4pt}
+\nopagebreak
+{\footnotesize
+\begin{verbatim}
+[Field block: time]
+tense: dominant grammatical tense of THIS sentence
+  (past/present/future); none if unclear.
+temporal_shift_marker: judge a shift ONLY if the marker OPENS
+  this sentence (a leading coordinating conjunction or quote
+  is allowed). 'sequence' if it opens with a next-step
+  connective (then, next, after that, first, afterwards);
+  'jump' if it opens with a time jump (later, the next
+  morning, years later, a moment later); 'simultaneity' if it
+  opens with meanwhile / at the same time. A time word that
+  appears mid-sentence ('he walked home and later ate') is NOT
+  a shift -> absent. Do NOT treat consequence/contrast
+  connectives (so, therefore, and yet, but) as time markers.
+  Judge only THIS sentence's own wording.
+
+[Labels]
+- primary: temporal_shift_marker -- the temporal-shift marker
+    opening the sentence
+- auxiliary (recorded, not used as a target): tense
+
+[Response schema] the reply is {"items": [<item>, ...]}, one
+    <item> per ITEM:
+{
+  "item_id":               integer
+  "tense":                 enum[past, present, future, none]
+  "temporal_shift_marker": enum[absent, sequence, jump,
+      simultaneity]
+}  // all keys required, no others allowed
+\end{verbatim}
+}
+\vspace{-0.7em}
+\noindent\rule{\columnwidth}{0.8pt}
+\vspace{0.2em}
+{\footnotesize\textit{Substituted into the envelope of Box A.2. Indicates whether the sentence begins with a temporal-shift marker expressing a time jump, sequential progression, or simultaneity. Markers appearing mid-sentence, as well as causal or contrastive connectives, are not treated as temporal transitions. Tense is auxiliary and unused.}}
+\vspace{0.6em}
+
+\vspace{0.6em}
+\noindent\rule{\columnwidth}{0.8pt}\\[-0.4em]
+{\footnotesize\textbf{Box A.6: Stage 2 field block --- causality}}\\[-0.7em]
+\noindent\rule{\columnwidth}{0.4pt}
+\nopagebreak
+{\footnotesize
+\begin{verbatim}
+[Field block: causality]
+event_type: the kind of event/action expressed in THIS
+  sentence.
+aspect: 'inceptive' if THIS sentence begins a new
+  action/state, 'completive' if it finishes one, else
+  'ongoing'. A linguistic property of THIS sentence.
+causal_marker: 'cause' if THIS sentence carries a cause
+  connective (because, since, ttaemune), 'consequence' if a
+  result connective (so, therefore, as a result, geuraeseo),
+  else 'absent'. Judge only THIS sentence's own wording.
+
+[Labels]
+- primary: event_type -- the kind of event the sentence
+    expresses
+- primary: aspect -- whether an action or state begins, ends,
+    or continues
+- auxiliary (recorded, not used as a target): causal_marker
+
+[Response schema] the reply is {"items": [<item>, ...]}, one
+    <item> per ITEM:
+{
+  "item_id":       integer
+  "event_type":    enum[dialogue, physical_action,
+      movement_or_travel, perception_or_observation,
+      thought_or_emotion, transaction_or_exchange,
+      conflict_or_violence, work_or_creation,
+      state_description, other]
+  "aspect":        enum[inceptive, ongoing, completive]
+  "causal_marker": enum[absent, cause, consequence]
+}  // all keys required, no others allowed
+\end{verbatim}
+}
+\vspace{-0.7em}
+\noindent\rule{\columnwidth}{0.8pt}
+\vspace{0.2em}
+{\footnotesize\textit{Substituted into the envelope of Box A.2. Represented by the event type expressed by the sentence and by an aspect label indicating whether a new action or state begins, ends, or continues. The explicit causal connective is an auxiliary column.}}
+\vspace{0.6em}
+
+\vspace{0.6em}
+\noindent\rule{\columnwidth}{0.8pt}\\[-0.4em]
+{\footnotesize\textbf{Box A.7: Stage 2 field block --- intentionality}}\\[-0.7em]
+\noindent\rule{\columnwidth}{0.4pt}
+\nopagebreak
+{\footnotesize
+\begin{verbatim}
+[Field block: intentionality]
+active_goal: the Stage 1 goal that THIS sentence's action
+  works toward. Read the purpose from what the action does --
+  the goal's own words need not appear. A goal that is only
+  MENTIONED -- talked about as a topic -- is NOT chosen. Use
+  none only when the action serves no goal on the list. (e.g.
+  'they talked about escaping the compound' -> none, the goal
+  is only discussed; 'he sawed through the fence bars' ->
+  escape, the action serves it). Choose only from: [{{GOALS}},
+  none].
+
+[Slots]
+- {{GOALS}}: the Stage-1 goals, comma-joined
+
+[Labels]
+- primary: active_goal -- the goal the action is actually
+    directed toward
+
+[Response schema] the reply is {"items": [<item>, ...]}, one
+    <item> per ITEM:
+{
+  "item_id":     integer
+  "active_goal": enum[{{GOALS}}, none]
+}  // all keys required, no others allowed
+\end{verbatim}
+}
+\vspace{-0.7em}
+\noindent\rule{\columnwidth}{0.8pt}
+\vspace{0.2em}
+{\footnotesize\textit{Substituted into the envelope of Box A.2. Identifies the active goal, among the candidate goals, toward which the action in the sentence is actually directed. The neutral value none is assigned when the action serves no candidate goal.}}
+\vspace{0.6em}
+
+\section{Stage 3: Transition Target Construction}
+\label{app:transition-rules}
+
+Stage 3 turns the sentence-level labels above into the state-change targets
+$\Delta y_t^{(k)}$ deterministically, without any further model call
+(Table~\ref{tab:transition-rules}). Before comparison, the two slowly varying dimensions
+are carried forward: on \textit{space} every \texttt{unspecified} and on
+\textit{intentionality} every \texttt{none} is replaced by the most recent preceding
+non-neutral value, so a dimension that is simply not restated does not register as a
+change. The carry-forward scans the document in reading order and never consults a later
+sentence, and it is blind to the boundary labels. Where no preceding valid value exists,
+the neutral token survives and the rule below leaves the transition at $0$.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lp{4.6cm}@{}}
+\toprule
+Dimension $k$ & $\Delta y_t^{(k)} = 1$ iff \\
+\midrule
+Protagonist & \texttt{protagonist\_present} differs between $t-1$ and $t$ \\
+Space & \texttt{location} differs after carry-forward and neither side is \texttt{unspecified} \\
+Time & \texttt{temporal\_shift\_marker} at $t$ is \texttt{sequence}, \texttt{jump}, or \texttt{simultaneity} \\
+Causality & \texttt{event\_type} differs, or \texttt{aspect} at $t$ is \texttt{inceptive} \\
+Intentionality & \texttt{active\_goal} differs after carry-forward and neither side is \texttt{none} \\
+\bottomrule
+\end{tabular}
+\caption{Deterministic comparison rules applied to adjacent sentence pairs. Time is
+asymmetric by construction: it depends only on the marker opening sentence $t$, since a
+temporal shift is expressed by the arriving sentence rather than by a difference between
+two states. \texttt{tense} is annotated but not used, having been found to flip with
+narration--commentary--dialogue alternation rather than with temporal discontinuity.}
+\label{tab:transition-rules}
+\end{table}

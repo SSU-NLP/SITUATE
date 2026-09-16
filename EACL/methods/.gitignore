@@ -1,0 +1,9 @@
+# 원저자 코드 클론 — 각자 git clone 으로 받는다 (레포에 중복 커밋하지 않음)
+_upstream/
+
+# Zenodo 배포 데이터 (3.8GB) 와 그 압축본 — 재현 시 스크립트가 다시 받는다
+bayes_surprise/data/
+bayes_surprise/signals/
+
+# LLM 호출 캐시
+*/results/cache_*.json
