@@ -73,7 +73,7 @@ def metrics(g: np.ndarray, s: np.ndarray, rate: float) -> dict:
 def m5_scores(path: str, corpora: dict, dev: str, rate: float) -> dict[str, dict]:
     b = torch.load(path, map_location=dev, weights_only=False)
     ta = argparse.Namespace(**b["args"])
-    m = T.FactoredSlot(slot_dim=ta.slot_dim, mono=b["mono"], pos_weight=b["pos_weight"],
+    m = T.FactoredSlot(z_dim=getattr(ta, "z_dim", 768), slot_dim=ta.slot_dim, mono=b["mono"], pos_weight=b["pos_weight"],
                        d1=(ta.input_path == "axis_extractor"),
                        shared_dim=(ta.shared_proj_dim or None),
                        tagger=(None if ta.tagger == "none" else ta.tagger),

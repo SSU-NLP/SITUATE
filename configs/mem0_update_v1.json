@@ -1,0 +1,52 @@
+{
+  "experiment": "mem0_update_oss_s0",
+  "mem0_version": "0.1.118",
+  "mem0_commit": "ed5a1e9fc68fcd7671a70c33a540d24573755449",
+  "longmemeval_commit": "9e0b455f4ef0e2ab8f2e582289761153549043fc",
+  "benchmark": "longmemeval_s_cleaned.json",
+  "expected_questions": 500,
+  "llm": "openrouter/openai/gpt-oss-120b",
+  "judge": "openrouter/openai/gpt-4o-2024-08-06",
+  "encoder": "sentence-transformers/all-mpnet-base-v2",
+  "encoder_revision": "e8c3b32edf5434bc2275fc9bab85f82640a19130",
+  "embedding_dim": 768,
+  "retrieval_k": 20,
+  "ingestion_unit": "session",
+  "common_renderer": true,
+  "train_conversations": 256,
+  "dev_conversations": 32,
+  "sessions_per_conversation": 16,
+  "seeds": [
+    0
+  ],
+  "epochs": 15,
+  "patience": 3,
+  "learning_rate": 0.0003,
+  "width": 128,
+  "slot_dim": 32,
+  "tbptt_sessions": 4,
+  "max_active_jobs": 2,
+  "max_total_gpus": 2,
+  "gpu_per_job": 1,
+  "qa_noninferiority_margin": 0.02,
+  "input_usd_per_million": 0.03,
+  "output_usd_per_million": 0.17,
+  "cost_note": "AkashML bf16 reference rates; output includes reasoning tokens. Official GPT-4o judge is unchanged.",
+  "llm_extra_body": {
+    "provider": {
+      "only": [
+        "akashml/bf16"
+      ],
+      "allow_fallbacks": false,
+      "require_parameters": true,
+      "max_price": {
+        "prompt": 0.05,
+        "completion": 0.25
+      }
+    },
+    "reasoning": {
+      "effort": "low",
+      "exclude": true
+    }
+  }
+}

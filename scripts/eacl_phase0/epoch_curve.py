@@ -1,7 +1,8 @@
 """epoch 별 성능 곡선 — 10 epoch 스냅숏 + 최종본을 6편에서 채점한다.
 
 val 손실은 로그에 **매 epoch** 남지만, 분절 성능(Score/BOR/Lift/AUC)은 체크포인트가 있어야
-계산된다. 지금 스냅숏 간격은 10 이므로 곡선의 x 축도 10 단위다.
+계산된다. 논문 본 학습(i2e100)은 스냅숏 간격이 10 이라 곡선의 x 축도 10 단위다.
+1 epoch 해상도는 `--ckpt-every 1` 로 재학습한 스냅숏에 `--pattern` 을 맞춰 채점한다.
 """
 from __future__ import annotations
 
@@ -29,12 +30,16 @@ def main() -> None:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--rate", type=float, default=0.0660)
+    ap.add_argument("--models", default="M5,M4")
+    ap.add_argument("--pattern",
+                    default="{model}_phase1__personkey_i2_per_slot_gsauthor_ep100_i2e100*seed?.pt",
+                    help="--exp 기준 체크포인트 glob. {model} 은 모델명으로 치환")
     a = ap.parse_args()
 
     corpora = {"dev-3": T.Corpus("dev3"), "test3": T.Corpus("test3")}
     curve: dict[str, dict[str, list]] = {}
-    for model in ("M5", "M4"):
-        pat = f"{a.exp}/{model}_phase1__personkey_i2_per_slot_gsauthor_ep100_i2e100*seed?.pt"
+    for model in a.models.split(","):
+        pat = f"{a.exp}/" + a.pattern.format(model=model)
         byep: dict[int, list[dict]] = {}
         for p in sorted(glob.glob(pat)):
             m = re.search(r"_ep(\d{3})_seed", p)
@@ -54,6 +59,7 @@ def main() -> None:
                 agg[k + "_sd"] = (st.stdev([st.mean([runs[i][d][k] for d in docs])
                                             for i in range(len(runs))]) if len(runs) > 1 else 0.0)
             agg["n_seed"] = len(runs)
+            agg["per_doc"] = {d: [r[d]["score"] for r in runs] for d in docs}
             curve[model][str(ep)] = agg
             tag = "final" if ep == 999 else f"ep{ep}"
             print(f"[{model}] {tag:>6s} (seed {len(runs)}) Score {agg['score']:.4f}±{agg['score_sd']:.4f} "

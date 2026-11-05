@@ -380,7 +380,8 @@ class FactoredSlot(nn.Module):
                         sent_mask: torch.Tensor, trans_mask: torch.Tensor,
                         psi_bnd: torch.Tensor | None = None,
                         feat: torch.Tensor | None = None,
-                        slot_bnd: torch.Tensor | None = None) -> dict:
+                        slot_bnd: torch.Tensor | None = None,
+                        obs_target: torch.Tensor | None = None) -> dict:
         """배치판 forward. 패딩 구간은 손실에서 완전히 제외한다.
 
         z [B,T,z_dim] · resets [B,T-1,5] · states [B,T,3] (STATE_AXES 순서: 0,2,3) ·
@@ -446,7 +447,8 @@ class FactoredSlot(nn.Module):
                          else (Sh_head, self.readout(Sh_head.flatten(start_dim=-2))))
             terms = []
             if self.pred_space in ("obs", "both"):
-                terms.append(((z_hat - z[:, 1:]) ** 2).sum(-1))              # [B,T-1]
+                target = z[:, 1:] if obs_target is None else obs_target
+                terms.append(((z_hat - target) ** 2).sum(-1))              # [B,T-1]
             if self.pred_space in ("slot", "both"):
                 # §4.6 Axis2 — 슬롯별 자기 공간 예측오차를 슬롯에 대해 평균(축별 가중 없음)
                 terms.append(((Sh - S[:, 1:]) ** 2).sum(-1).mean(-1))        # [B,T-1]

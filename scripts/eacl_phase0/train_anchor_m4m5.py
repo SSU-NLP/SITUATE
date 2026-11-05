@@ -97,7 +97,7 @@ def make_batch(c: Corpus, idx: list[int], dev: str, with_anchor: bool, want_feat
     idx = sorted(idx, key=lambda i: -(c.so[i + 1] - c.so[i]))
     T = int(max(c.so[i + 1] - c.so[i] for i in idx))
     B = len(idx)
-    z = torch.zeros(B, T, 768, device=dev)
+    z = torch.zeros(B, T, c.emb.shape[1], device=dev)
     ft = torch.zeros(B, T, 5, 8, device=dev) if want_feat else None
     sm = torch.zeros(B, T, device=dev)
     tm = torch.zeros(B, T - 1, device=dev)
@@ -343,7 +343,7 @@ def train_one(name: str, mono: bool, dyn: str | None, tr: list[int], va: list[in
               dev3: Corpus, args, pw: list[float], dev: str) -> dict:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    model = FactoredSlot(slot_dim=args.slot_dim, mono=mono, pos_weight=pw,
+    model = FactoredSlot(z_dim=c.emb.shape[1], slot_dim=args.slot_dim, mono=mono, pos_weight=pw,
                          alpha=getattr(args, "_alpha", ALPHA),
                          d1=(args.input_path == "axis_extractor"),
                          shared_dim=(args.shared_proj_dim or None),
@@ -529,6 +529,7 @@ def main() -> None:
     EXP.mkdir(parents=True, exist_ok=True)
 
     c = Corpus(args.split)
+    args.z_dim = int(c.emb.shape[1])
     dev3 = Corpus("dev3")
     n = c.n_docs if not args.limit_docs else min(args.limit_docs, c.n_docs)
     rng = np.random.default_rng(20260728)  # 분할 seed 고정 = 모델·seed 간 동일 분할
