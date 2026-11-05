@@ -22,24 +22,27 @@ def test_label_profiles():
       time=[dict(temporal_shift_marker='absent')]*4,
       causality=[dict(event_type='dialogue',aspect='ongoing')]*4,
       intentionality=[dict(active_goal=x) for x in ['a','none','b','b']])
-    r,s=targets(states,'paper');i,_=targets(states,'pretrained-i2')
-    assert r[:,1].tolist()==[0,1,0]
-    assert r[:,4].tolist()==[0,1,0]
+    i,s=targets(states)
+    assert i[:,1].tolist()==[0,1,0]
+    assert i[:,4].tolist()==[0,1,0]
+    assert s[:,0].tolist()==[2,2,2,2]
     states['intentionality']=[dict(active_goal=x) for x in ['none','a','b','none']]
-    r,_=targets(states,'paper');i,_=targets(states,'pretrained-i2')
-    assert r[:,4].tolist()==[0,1,0] and i[:,4].tolist()==[1,0,0]
+    i,_=targets(states)
+    assert i[:,4].tolist()==[1,0,0]
+    with pytest.raises(ValueError):
+        targets(states,'paper')
 
 def test_training_reload_and_split_guard(tmp_path):
     rng=np.random.default_rng(2)
     for split in ('train','val'):
         d=tmp_path/split;d.mkdir()
         np.savez(d/'doc.npz',embeddings=rng.normal(size=(4,768)).astype('float32'),
-          resets=np.zeros((3,5),dtype='int64'),states=np.zeros((4,3),dtype='int64'),group=split,profile='paper')
+          resets=np.zeros((3,5),dtype='int64'),states=np.zeros((4,3),dtype='int64'),group=split,profile='pretrained-i2')
     target=tmp_path/'model.pt'
     history=train(tmp_path/'train',tmp_path/'val',target,epochs=1,batch_size=1)
     model,profile=load_model(target)
-    assert profile=='paper' and model.pred_space=='slot' and np.isfinite(history[0]['validation'])
+    assert profile=='pretrained-i2' and model.pred_space=='obs' and np.isfinite(history[0]['validation'])
     r=segment_embeddings(rng.normal(size=(3,768)),checkpoint=target)
-    assert r['profile']=='paper'
+    assert r['profile']=='pretrained-i2'
     with pytest.raises(ValueError,match='overlap'):
         train(tmp_path/'train',tmp_path/'train',tmp_path/'bad.pt',epochs=1)

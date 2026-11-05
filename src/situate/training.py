@@ -6,6 +6,8 @@ import torch
 from .factored_slot import FactoredSlot
 
 def load_dataset(directory, profile):
+    if profile != 'pretrained-i2':
+        raise ValueError('Paper candidates are isolated on the paper-candidate branch')
     docs = []
     for path in sorted(Path(directory).glob('*.npz')):
         with np.load(path, allow_pickle=False) as f:
@@ -34,17 +36,16 @@ def batch(docs, device):
         s[i,:n]=torch.tensor(d['s'],device=device);sm[i,:n]=1;tm[i,:n-1]=1
     return z,r,s,sm,tm
 
-def train(train_dir,val_dir,output,profile='paper',epochs=100,patience=3,batch_size=48,seed=0,device='cpu'):
+def train(train_dir,val_dir,output,profile='pretrained-i2',epochs=100,patience=3,batch_size=48,seed=0,device='cpu'):
     if epochs<1 or patience<1 or batch_size<1: raise ValueError('Training counts must be positive')
     random.seed(seed);np.random.seed(seed);torch.manual_seed(seed)
     tr=load_dataset(train_dir,profile);va=load_dataset(val_dir,profile)
     for key in ('group','digest'):
         if {d[key] for d in tr}&{d[key] for d in va}: raise ValueError(f'Train/validation overlap: {key}')
     counts=np.concatenate([d['r'] for d in tr]); pos=counts.sum(0)
-    weights=np.clip((len(counts)-pos)/np.maximum(pos,1),1,30).tolist() if profile=='pretrained-i2' else [1.]*5
-    kw=dict(slot_dim=128,bottleneck=8,dropout=.4,dynamics='per_slot',pred_space='slot' if profile=='paper' else 'obs',
-            pred_weight=5. if profile=='paper' else 1.,pos_weight=weights)
-    # FactoredSlot averages five latent prediction losses; weight 5 implements the paper's sum.
+    weights=np.clip((len(counts)-pos)/np.maximum(pos,1),1,30).tolist()
+    kw=dict(slot_dim=128,bottleneck=8,dropout=.4,dynamics='per_slot',pred_space='obs',
+            pred_weight=1.,pos_weight=weights)
     model=FactoredSlot(**kw).to(device); opt=torch.optim.Adam(model.parameters(),lr=3e-4)
     output=Path(output);output.parent.mkdir(parents=True,exist_ok=True)
     if output.exists(): raise FileExistsError(output)

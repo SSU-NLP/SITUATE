@@ -10,6 +10,8 @@ DEFAULT_CHECKPOINT = Path(__file__).parent / 'checkpoints/pretrained_i2.pt'
 
 def load_model(checkpoint=None, device='cpu'):
     ck = torch.load(checkpoint or DEFAULT_CHECKPOINT, map_location=device, weights_only=True)
+    if ck.get('profile', 'pretrained-i2') != 'pretrained-i2' or ck.get('architecture', 'legacy') != 'legacy':
+        raise ValueError('Candidate checkpoint: use the paper-candidate branch')
     if 'model_kwargs' in ck:
         kw = ck['model_kwargs']
     else:
@@ -57,7 +59,7 @@ def segment_embeddings(embeddings, checkpoint=None, device='cpu', c=1.):
         torch.ones(1,n-1,device=device))
     probs = torch.stack([o['change_logits'][a].sigmoid() for a in AXES], -1)[0].cpu().numpy()
     scores = probs.sum(1)
-    boundaries = adaptive_boundaries(scores, c, min_transitions=1 if profile == 'paper' else 2)
+    boundaries = adaptive_boundaries(scores, c, min_transitions=2)
     cuts = [0]+boundaries+[n]
     return dict(boundaries=boundaries,segments=[list(x) for x in zip(cuts[:-1],cuts[1:])],
                 scores=scores.tolist(),axis_probs=probs.tolist(),profile=profile)
