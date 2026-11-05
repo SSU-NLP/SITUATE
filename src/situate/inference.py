@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from .factored_slot import FactoredSlot, AXES
-from .paper_model import PaperSITUATE
+from .paper_model import PaperSITUATE, TARGET_SCHEMA
 
 ENCODER = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 ENCODER_REVISION = '4328cf26390c98c5e3c738b4460a05b95f4911f5'
@@ -24,8 +24,8 @@ def load_model(checkpoint=None, device='cpu'):
                   alpha=a.get('_alpha', (1., .5, 1., .4, .25)), dynamics=ck['dynamics'],
                   pred_space=a.get('pred_space', 'obs'), pred_weight=a.get('pred_weight', 1.),
                   bottleneck=a.get('bottleneck', 8), dropout=a.get('dropout', .4))
-    if ck.get('profile')=='paper' and ck.get('architecture')!='paper-v1':
-        raise ValueError('Superseded paper profile: rebuild targets and retrain with paper-v1')
+    if ck.get('profile')=='paper' and (ck.get('architecture')!='paper-v1' or ck.get('target_schema')!=TARGET_SCHEMA):
+        raise ValueError('Incompatible candidate checkpoint: expected paper-v1 architecture and perspective-v1 auxiliary targets')
     m = (PaperSITUATE(**kw) if ck.get('architecture')=='paper-v1' else FactoredSlot(**kw)).to(device)
     m.load_state_dict(ck['state'], strict=True)
     return m.eval(), ck.get('profile', 'pretrained-i2')

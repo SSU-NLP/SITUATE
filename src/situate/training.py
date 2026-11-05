@@ -13,7 +13,7 @@ def load_dataset(directory, profile):
             if str(f['profile']) != profile:
                 raise ValueError(f'{path}: label profile mismatch')
             if profile=='paper' and ('target_schema' not in f or str(f['target_schema'])!=TARGET_SCHEMA):
-                raise ValueError(f'{path}: paper targets must be rebuilt from original absolute labels')
+                raise ValueError(f'{path}: expected explicit perspective-v1 auxiliary target schema')
             z=np.asarray(f['embeddings'],np.float32); r=np.asarray(f['resets'],np.int64)
             s=np.asarray(f['states'],np.int64)
             if z.ndim!=2 or z.shape[1]!=768 or len(z)<2 or r.shape!=(len(z)-1,5) or s.shape!=(len(z),3):
@@ -21,7 +21,7 @@ def load_dataset(directory, profile):
             if not np.isfinite(z).all() or not np.isin(r,[0,1]).all():
                 raise ValueError(f'{path}: invalid values')
             norm=np.linalg.norm(z,axis=1,keepdims=True)
-            if (norm<=1e-12).any() or any(((s[:,i]<0)|(s[:,i]>=k)).any() for i,k in enumerate((2,4,10) if profile=='paper' else (4,4,10))):
+            if (norm<=1e-12).any() or any(((s[:,i]<0)|(s[:,i]>=k)).any() for i,k in enumerate((4,4,10))):
                 raise ValueError(f'{path}: invalid vectors or state labels')
             docs.append(dict(z=z/norm,r=r,s=s,group=str(f['group']),
                 digest=hashlib.sha256(z.tobytes()).hexdigest(),path=str(path)))

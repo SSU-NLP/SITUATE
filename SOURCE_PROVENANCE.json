@@ -8,20 +8,20 @@
   },
   "source_repository_after_rename": "SSU-NLP/SITUATE",
   "source_commit": "3a09736c8553a972abb5cbaff9019edc54e6a404",
-  "changes": "Paper equation audit: independent paper-v1 model, boolean protagonist targets, direct latent loss, input token cap, explicit legacy checkpoint, narrative evaluator; full retraining pending original data.",
+  "changes": "Candidate branch: restored original perspective four-class auxiliary head, targets and schema. Other paper/code discrepancies are documented, not resolved. No training or evaluation performed for this restoration.",
   "files": {
     "src/situate/__init__.py": "78c59724bf1a95f797ecac56f649617a4fb20537b46da700222cbe455caa9cd3",
     "src/situate/annotation.py": "3bb5098fb6324e7eacceb72064437f7af1639d132b3eff067330151b46595787",
     "src/situate/annotation_prompts.py": "69cd24016b9292d14c8fc4e0de18297a0f792678c188934085d374edc3af8986",
     "src/situate/checkpoints/pretrained_i2.pt": "61d2ddaeb14643998f1d81eb10c1745e929e9e0a11906d211a6f2c23e9caa4a3",
-    "src/situate/cli.py": "b30cada3be2a4c6d4d4536d759eab7ae4107ec58646d736ba798e95a530dc170",
+    "src/situate/cli.py": "ba0bb03be2cf9071674144a13100f9f7723182077f175d66d44791dc2be42683",
     "src/situate/factored_slot.py": "5bc4cddc6917c4f83c491838fc711e9272665fc176ef7afa777df5bcd7a3c9f7",
-    "src/situate/inference.py": "52970bcfdc7c5ad2713dcf31357c39c3a6785eb8ded307d8d53489398bf8ef4d",
-    "src/situate/labels.py": "69d30a14e8520d45bb1f532221a7bd6f2997d7622965f12f76f22691b6f22c29",
+    "src/situate/inference.py": "f70a76f2820d69a15d6e0f9dff3ca20dee67ebce68b8b11d66bbce4e5657b9aa",
+    "src/situate/labels.py": "98cdbdf31d49893f76a84b22ee24e1883ed8ecb307ca1149da1e9270f3eaa3b3",
     "src/situate/metrics.py": "53f86521421b323057041dfd4ec34317fefb0a3eb89fb67f3d9242b093f718ab",
     "src/situate/narrative_evaluation.py": "12658d15716401d68383c2ea7de5cd33b1ba45bd506c2290db88a3f3efbfc702",
-    "src/situate/paper_model.py": "cb8016e43eddd4597c0151914be6683746fe8860503c2060024d436da95578d0",
-    "src/situate/reproduce.py": "487ef2c6231473b8984401023d84204716f33296495d4137f495dead217b0aed",
-    "src/situate/training.py": "3c19ebffabbd7ceba60ecfeca18e57e14b6f01c772da64ad522e6ee35e734033"
+    "src/situate/paper_model.py": "5a29de6c78702973e1570c50ac75cce7a840677ddeb557bd8675fddbf917068d",
+    "src/situate/reproduce.py": "7e500ca69f3216a50c80fe62c10391ff19ac2985e603e85ee12b98161b6115d5",
+    "src/situate/training.py": "8375f0a6849a8796d1a2e3d13edd58f35c1615b12896b06347c870eb494b6d86"
   }
 }

@@ -32,7 +32,7 @@ def main():
             data['embeddings']=SentenceTransformer(ENCODER,device='cpu',revision=ENCODER_REVISION).encode(data['sentences'],normalize_embeddings=True)
         z=np.asarray(data['embeddings'],np.float32)
         if z.shape!=(len(s),768):raise ValueError('Embedding/state length or dimension mismatch')
-        with open(a.output,'xb') as f:np.savez_compressed(f,embeddings=z,resets=r,states=s,group=data['group'],profile=a.profile,target_schema='protagonist_present-v1' if a.profile=='paper' else 'perspective-v1')
+        with open(a.output,'xb') as f:np.savez_compressed(f,embeddings=z,resets=r,states=s,group=data['group'],profile=a.profile,target_schema='perspective-v1')
         out={'saved':a.output}
     elif a.command=='train':
         from .training import train

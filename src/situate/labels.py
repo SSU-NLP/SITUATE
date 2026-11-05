@@ -19,7 +19,7 @@ def targets(states, profile='paper'):
              lambda a,b:int(a['active_goal']=='none' and b['active_goal']!='none')]
     resets = np.array([[rule(axis[a][i-1],axis[a][i]) for a,rule in zip(p.AXES,rules)]
                        for i in range(1,n)],dtype=np.int64)
-    absolute = np.array([[int(states['protagonist'][i]['protagonist_present']) if profile == 'paper' else p.PERSPECTIVE.index(states['protagonist'][i]['perspective']),
+    absolute = np.array([[p.PERSPECTIVE.index(states['protagonist'][i]['perspective']),
                           p.TEMPORAL_SHIFT.index(states['time'][i]['temporal_shift_marker']),
                           p.EVENT_TYPE.index(states['causality'][i]['event_type'])]
                          for i in range(n)],dtype=np.int64)

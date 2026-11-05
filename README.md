@@ -42,7 +42,7 @@ uv run situate evaluate evaluation.json
 
 annotate는 전체 이야기에서 닫힌 어휘를 뽑고, 축마다 독립 순서로 섞어 20문장씩 v3.1 프롬프트에 전달합니다. temperature=0, enable_thinking=false를 사용합니다. 호출할 때만 외부 서버에 이야기가 전송되며 이번 검증에서는 외부 주석 API를 호출하지 않았습니다. 반환 항목 누락·중복·범위 오류는 실패 처리합니다. prepare는 원래 순서에서 결정론적 변화 타깃을 만들고 동결 인코더로 임베딩합니다. 이미 embeddings가 있으면 재인코딩하지 않습니다.
 
-학습 입력 NPZ에는 embeddings[T,768], resets[T-1,5], states[T,3], group 문자열, profile 문자열이 필요합니다. paper의 states 열은 protagonist_present(2), temporal_shift_marker(4), event_type(10)이며 target_schema=protagonist_present-v1이 필요합니다. 이전 perspective 기반 NPZ는 원본 절대 라벨로 다시 만들어야 합니다. 디렉터리는 먼저 생성하세요. train/val의 동일 group 또는 동일 임베딩 문서는 차단합니다. 논문 데이터의 공식 분할을 별도로 제공해야 하며 테스트셋을 학습·선택에 사용하지 마세요.
+학습 입력 NPZ에는 embeddings[T,768], resets[T-1,5], states[T,3], group 문자열, profile 문자열이 필요합니다. states 열은 기존과 동일한 perspective(4: first/second/third/none), temporal_shift_marker(4), event_type(10)이며 target_schema=perspective-v1을 명시합니다. 잘못 생성했던 protagonist_present-v1 보조 라벨은 호환되지 않습니다. 인물 변화 타깃은 계속 protagonist_present의 변화입니다. 디렉터리는 먼저 생성하세요. train/val의 동일 group 또는 동일 임베딩 문서는 차단합니다. 논문 데이터의 공식 분할을 별도로 제공해야 하며 테스트셋을 학습·선택에 사용하지 마세요.
 
 기본 Adam 3e-4, 100 epochs, patience 3, batch 48입니다. 4개 seed는 각각 다른 출력 경로로 실행합니다. 기존 출력은 덮어쓰지 않습니다. 전체 11,836편 데이터와 논문 4-seed 재학습은 이 저장소에 포함되지 않습니다. validation 문서 평균 손실로 조기 종료합니다.
 

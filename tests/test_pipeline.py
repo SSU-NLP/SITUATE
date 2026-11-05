@@ -37,7 +37,7 @@ def test_training_reload_and_split_guard(tmp_path):
     for split in ('train','val'):
         d=tmp_path/split;d.mkdir()
         np.savez(d/'doc.npz',embeddings=rng.normal(size=(4,768)).astype('float32'),
-          resets=np.zeros((3,5),dtype='int64'),states=np.zeros((4,3),dtype='int64'),group=split,profile='paper',target_schema='protagonist_present-v1')
+          resets=np.zeros((3,5),dtype='int64'),states=np.zeros((4,3),dtype='int64'),group=split,profile='paper',target_schema='perspective-v1')
     target=tmp_path/'model.pt'
     history=train(tmp_path/'train',tmp_path/'val',target,epochs=1,batch_size=1)
     model,profile=load_model(target)
@@ -60,19 +60,19 @@ def test_paper_equation9_and_no_observation_decoder():
     expected=sum((model.forward_models[k](S[:,:-1,k])-S[:,1:,k]).square().sum(-1) for k in range(5)).mean()
     torch.testing.assert_close(out['l_pred'],expected)
     assert not hasattr(model,'readout')
-    assert model.state_heads['0'][-1].out_features==2
+    assert model.state_heads['0'][-1].out_features==4
     out['loss'].backward()
     assert all(p.grad is not None for p in model.parameters())
     assert adaptive_boundaries([1.],min_transitions=1)==[1]
 
 
-def test_paper_auxiliary_target_is_presence():
+def test_paper_auxiliary_target_is_perspective():
     states=dict(protagonist=[dict(perspective='third',protagonist_present=v) for v in [True,False]],
         space=[dict(location='unspecified')]*2,time=[dict(temporal_shift_marker='absent')]*2,
         causality=[dict(event_type='dialogue',aspect='ongoing')]*2,
         intentionality=[dict(active_goal='none')]*2)
     r,s=targets(states,'paper')
-    assert s[:,0].tolist()==[1,0] and r[0,0]==1
+    assert s[:,0].tolist()==[2,2] and r[0,0]==1
 
 
 def test_narrative_metrics_and_undefined_controls():

@@ -28,7 +28,7 @@ def reproduce(train_dir,val_dir,evaluation_manifest,output_dir,device='cuda'):
         (output/f'evaluation-seed{seed}.json').write_text(json.dumps(result,indent=2))
         scores.append(result['macro']['situate']['score'])
     result=dict(scores=scores,mean=float(np.mean(scores)),std=float(np.std(scores)),
-        parameter_count=705629,reported_paper_parameter_count_approx=1430000,
+        parameter_count=705887,reported_paper_parameter_count_approx=1430000,
         downstream_longbench='not run by this command')
     (output/'summary.json').write_text(json.dumps(result,indent=2))
     return result

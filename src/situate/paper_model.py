@@ -1,14 +1,14 @@
 """SITUATE equations (1)–(11), without the legacy observation decoder.
 
 Widths/regularization unspecified by the paper retain explicitly recorded legacy
-values. The protagonist auxiliary target is the paper's boolean primary field.
+values. The protagonist auxiliary target retains the original four narrative perspectives.
 """
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 AXES = ('protagonist', 'space', 'time', 'causality', 'intentionality')
-TARGET_SCHEMA = 'protagonist_present-v1'
+TARGET_SCHEMA = 'perspective-v1'
 
 def mlp(a, b, c):
     return nn.Sequential(nn.Linear(a,b), nn.GELU(), nn.Linear(b,c))
@@ -31,7 +31,7 @@ class PaperSITUATE(nn.Module):
         self.phi=nn.PReLU(slot_dim)
         self.change_heads=nn.ModuleList([mlp(4*slot_dim,slot_dim,1) for _ in AXES])
         self.state_heads=nn.ModuleDict({str(k):mlp(slot_dim,slot_dim,size)
-                                       for k,size in ((0,2),(2,4),(3,10))})
+                                       for k,size in ((0,4),(2,4),(3,10))})
         self.forward_models=nn.ModuleList([mlp(slot_dim,slot_dim,slot_dim) for _ in AXES])
 
     def encode(self,z):
