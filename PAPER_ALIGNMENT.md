@@ -1,27 +1,36 @@
-# 논문·학습본·재학습 경로 대조
+# SITUATE 논문 정합성 재감사 — 2026-11-05
 
-기준: 사용자가 제공한 SITUATE EACL 2027 PDF, 8페이지. 논문 p2, Appendix B의 식과 표를 기준으로 분리했습니다.
+전체 재학습 상태: 원본 데이터 위치/접속 확인 대기. 합성 학습 테스트를 논문 재학습으로 간주하지 않는다.
 
-| 항목 | 제공 학습본 pretrained-i2 | paper 재학습 |
+## 수정한 불일치
+
+| 논문 근거 | 이전 상태 | 수정 상태 |
 |---|---|---|
-| 동결 인코더 | paraphrase-multilingual-mpnet-base-v2, 768 | 동일 |
-| 축 | protagonist/space/time/causality/intentionality | 동일 |
-| 축별 입력·상태 | 768→32→8, 상태128 | 동일 |
-| 공유 게이트·갱신·정규화 | 원본 FactoredSlot 그대로 | 동일 |
-| 변화 헤드 | 이전/현재/차이/곱→축별 sigmoid | 동일 |
-| 의도 타깃 | carry 없음, none→goal만 | none carry, 유효 goal 간 변화 |
-| 자기지도 예측 | 다음 관측 임베딩(obs) | 다음 잠재상태(slot) |
-| 양성 가중치 | [2.2884473,8.4251316,30,1,7.4308626] | 비가중 BCE(모두1) |
-| 예측 손실 축 집계 | 관측 제곱오차 합 | 원본 축 평균×5로 논문 축 합 구현 |
-| 첫 실제 전이 | 억제 후 prefix 임계 | 논문 t≥2 조건대로 포함 |
-| 임계 통계 | 현재 전이 포함 평균+1×모표준편차 | 동일 |
-| 보조 절대상태 | perspective4 / time4 / causality10 | 동일, 논문의 protagonist 상세 라벨은 원본 구현을 따름 |
+| B.2 Table 4 | I2 목표 출현만 변화 | paper 라벨은 none carry 후 유효 목표 변화 |
+| B.2 인물 primary field / Eq.8 | perspective 4분류 | protagonist_present 2분류, 타깃 스키마 명시 |
+| Eq.9 | 관측 복원 또는 축 평균×5 우회 | 잠재 상태 제곱오차를 축·좌표에 대해 직접 합산 |
+| B.1/B.3 구조 | 사용하지 않는 관측 readout 유지 | PaperSITUATE에서 제거, 학습되는 모든 파라미터의 gradient 검사 |
+| Eq.4 | 클래스 양성 가중 BCE | 비가중 BCE |
+| Eq.1–3/5–7 | 실험 변형과 혼합 클래스 | 논문 식 전용 paper_model.py |
+| B.2 Stage 1 | 출력 max_tokens=8000만 적용 | 서버와 일치하는 tokenizer로 서사 입력을 8000토큰에 제한 |
+| Sec.3 온라인 경계 | 첫 실제 전이 억제 | t≥2의 현재 포함 prefix 평균+모표준편차, b1=0 |
+| 실행 기본값 | I2 체크포인트 자동 사용 | 논문 학습본 없으면 명시적으로 중단 |
+| 평가 | 일반 DTS Score만 | 문장 사이 라벨 기준 Score/BOR/Lift와 예측 개수 일치 비교군 |
 
-checkpoint 실제 인자를 읽어 위 차이를 확인했습니다. 원본 config의 pred_space·pos_weight 설명과 실제 체크포인트가 일치하지 않아 config 문구를 복사하지 않았습니다. 논문 μ_t/σ_t는 prefix 통계로 해석했으며 현재 전이 포함 여부 및 첫 전이 규칙은 명시했습니다. 기본 학습본 경계는 원본 online_nf와 동일하게 유지합니다.
+이전 paper 타깃은 perspective 라벨일 수 있으므로 target_schema가 없는 NPZ를 거부한다. 기존 I2 체크포인트는 명시적 경로로만 로드할 수 있으며 paper 평가 진입점에서 거부한다.
 
-인물 존재 변화, 공간 carry·유효 장소 변화, 시간 sequence/jump/simultaneity, 인과 event_type 변화 또는 inceptive는 공통입니다. gamma=.05, beta=.25, variance floor=.1, alpha=(1,.5,1,.4,.25), dropout=.4는 원본 구현 기본값을 유지합니다. 논문이 명시하지 않은 수치를 논문 확정값으로 주장하지 않습니다.
+## 논문 자체의 재현 한계
 
-학습본 1,428,063 파라미터. 원본 전체 model state를 보존하기 위해 학습 시 사용하지 않는 관측 readout도 paper 구조에 남아 있습니다. 기본 checkpoint의 출처는 원본 저장소 기록이며 학습 데이터 전체를 이번 작업에서 재검증한 것은 아닙니다.
+논문은 약 1.43M 파라미터라고 기술하지만, 제공 구현에서 그 수에는 관측 임베딩 복원층이 포함되어 있었다. 논문에 기술된 잠재상태 예측 구조와 주인공 존재 보조 헤드로 정리하면 705,629개다. 보고 숫자를 맞추려고 사용하지 않는 층을 남기지 않았다. 논문의 파라미터 수 또는 생략된 구조 설명이 정정/확인되어야 이 부분까지 일치한다고 할 수 있다.
 
-**완료한 검증:** 독립 설치, 실제 문장→동결 인코더→경계, 원본 확률·경계 비교, prefix 인과성, 두 라벨 규칙, 합성 데이터 1epoch 학습·재로딩, train/val 중복 차단.
-**미실행:** 외부 Qwen 주석, 전체 코퍼스 재학습, 4seed 논문 수치 재현, LongBench/EM-LLM 재평가. 이 항목을 완료했다고 표시하지 않습니다.
+논문에 없는 상세값은 기존 구현의 alpha=(1,.5,1,.4,.25), beta=.25, gamma=.05, variance floor=.1, dropout=.4, hidden width32/128, batch48을 유지했다. lambda_pred=1, seed 번호0~3, 표준편차 표본 보정 및 첫 전이 처리도 명시적 구현 선택이다. 이들을 원문 확정값이라고 주장하지 않는다.
+
+원문 Table 1의 SITUATE BOR 평균2.17과 count-matched 비교군 BOR 평균1.35는 동일 예측 개수라는 설명과 맞지 않는다. 새 평가는 실제 모델 예측 개수에 비교군을 맞추며 표의 숫자를 강제로 재현하지 않는다.
+
+## 데이터 및 실행 조건
+
+필요 자료: 11,836편 원본 축별 절대 라벨·임베딩·정확한 train/validation 분할, 6개 서사의 합의 경계·문장 정렬, 하류 검증용 LongBench와 EM-LLM 실행 환경.
+
+로컬 코드와 Git 보존 브랜치에는 대규모 학습 데이터가 없다. nam_con 연결은 되지만 확인한 연구 경로에 원본 데이터가 없었고, elice는 공개키 인증이 거부됐다. 원본 기록의 경로는 /root/Hi-OnTop/outputs/experiments/m4m5_phase1_anchor/data 및 /root/Hi-OnTop/outputs/eacl_phase0/phase1_all_v31 이다.
+
+전체 학습/실제 평가 결과: 아직 없음. 검증은 단위 테스트와 합성 1epoch 학습·저장·재로딩에 한정한다.

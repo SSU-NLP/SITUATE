@@ -3,13 +3,17 @@ from pathlib import Path
 import numpy as np
 import torch
 from .factored_slot import FactoredSlot, AXES
+from .paper_model import PaperSITUATE
 
 ENCODER = 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2'
 ENCODER_REVISION = '4328cf26390c98c5e3c738b4460a05b95f4911f5'
-DEFAULT_CHECKPOINT = Path(__file__).parent / 'checkpoints/pretrained_i2.pt'
+DEFAULT_CHECKPOINT = Path(__file__).parent / 'checkpoints/paper.pt'
 
 def load_model(checkpoint=None, device='cpu'):
-    ck = torch.load(checkpoint or DEFAULT_CHECKPOINT, map_location=device, weights_only=True)
+    path=Path(checkpoint) if checkpoint else DEFAULT_CHECKPOINT
+    if not path.exists():
+        raise FileNotFoundError('Paper-trained checkpoint is not available yet. Supply --checkpoint explicitly; legacy weights are not a paper reproduction.')
+    ck = torch.load(path, map_location=device, weights_only=True)
     if 'model_kwargs' in ck:
         kw = ck['model_kwargs']
     else:
@@ -20,7 +24,9 @@ def load_model(checkpoint=None, device='cpu'):
                   alpha=a.get('_alpha', (1., .5, 1., .4, .25)), dynamics=ck['dynamics'],
                   pred_space=a.get('pred_space', 'obs'), pred_weight=a.get('pred_weight', 1.),
                   bottleneck=a.get('bottleneck', 8), dropout=a.get('dropout', .4))
-    m = FactoredSlot(**kw).to(device)
+    if ck.get('profile')=='paper' and ck.get('architecture')!='paper-v1':
+        raise ValueError('Superseded paper profile: rebuild targets and retrain with paper-v1')
+    m = (PaperSITUATE(**kw) if ck.get('architecture')=='paper-v1' else FactoredSlot(**kw)).to(device)
     m.load_state_dict(ck['state'], strict=True)
     return m.eval(), ck.get('profile', 'pretrained-i2')
 

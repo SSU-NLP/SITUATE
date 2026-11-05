@@ -4,6 +4,7 @@ import json, random, hashlib
 import numpy as np
 import torch
 from .factored_slot import FactoredSlot
+from .paper_model import PaperSITUATE, TARGET_SCHEMA
 
 def load_dataset(directory, profile):
     docs = []
@@ -11,6 +12,8 @@ def load_dataset(directory, profile):
         with np.load(path, allow_pickle=False) as f:
             if str(f['profile']) != profile:
                 raise ValueError(f'{path}: label profile mismatch')
+            if profile=='paper' and ('target_schema' not in f or str(f['target_schema'])!=TARGET_SCHEMA):
+                raise ValueError(f'{path}: paper targets must be rebuilt from original absolute labels')
             z=np.asarray(f['embeddings'],np.float32); r=np.asarray(f['resets'],np.int64)
             s=np.asarray(f['states'],np.int64)
             if z.ndim!=2 or z.shape[1]!=768 or len(z)<2 or r.shape!=(len(z)-1,5) or s.shape!=(len(z),3):
@@ -18,7 +21,7 @@ def load_dataset(directory, profile):
             if not np.isfinite(z).all() or not np.isin(r,[0,1]).all():
                 raise ValueError(f'{path}: invalid values')
             norm=np.linalg.norm(z,axis=1,keepdims=True)
-            if (norm<=1e-12).any() or any(((s[:,i]<0)|(s[:,i]>=k)).any() for i,k in enumerate((4,4,10))):
+            if (norm<=1e-12).any() or any(((s[:,i]<0)|(s[:,i]>=k)).any() for i,k in enumerate((2,4,10) if profile=='paper' else (4,4,10))):
                 raise ValueError(f'{path}: invalid vectors or state labels')
             docs.append(dict(z=z/norm,r=r,s=s,group=str(f['group']),
                 digest=hashlib.sha256(z.tobytes()).hexdigest(),path=str(path)))
@@ -42,10 +45,13 @@ def train(train_dir,val_dir,output,profile='paper',epochs=100,patience=3,batch_s
         if {d[key] for d in tr}&{d[key] for d in va}: raise ValueError(f'Train/validation overlap: {key}')
     counts=np.concatenate([d['r'] for d in tr]); pos=counts.sum(0)
     weights=np.clip((len(counts)-pos)/np.maximum(pos,1),1,30).tolist() if profile=='pretrained-i2' else [1.]*5
-    kw=dict(slot_dim=128,bottleneck=8,dropout=.4,dynamics='per_slot',pred_space='slot' if profile=='paper' else 'obs',
-            pred_weight=5. if profile=='paper' else 1.,pos_weight=weights)
-    # FactoredSlot averages five latent prediction losses; weight 5 implements the paper's sum.
-    model=FactoredSlot(**kw).to(device); opt=torch.optim.Adam(model.parameters(),lr=3e-4)
+    if profile=='paper':
+        kw=dict(slot_dim=128,bottleneck=8,dropout=.4,pred_weight=1.)
+        model=PaperSITUATE(**kw).to(device)
+    else:
+        kw=dict(slot_dim=128,bottleneck=8,dropout=.4,dynamics='per_slot',pred_space='obs',pred_weight=1.,pos_weight=weights)
+        model=FactoredSlot(**kw).to(device)
+    opt=torch.optim.Adam(model.parameters(),lr=3e-4)
     output=Path(output);output.parent.mkdir(parents=True,exist_ok=True)
     if output.exists(): raise FileExistsError(output)
     best=float('inf');bad=0;history=[]
@@ -58,10 +64,10 @@ def train(train_dir,val_dir,output,profile='paper',epochs=100,patience=3,batch_s
         model.eval()
         with torch.no_grad():
             vals=[float(model.forward_batched(*batch([d],device))['loss']) for d in va]
-        value=float(np.mean(vals));history.append(dict(epoch=epoch+1,train=float(np.mean(losses)),validation=value))
+        value=float(np.mean(vals));print(json.dumps(dict(epoch=epoch+1,train=float(np.mean(losses)),validation=value)),flush=True);history.append(dict(epoch=epoch+1,train=float(np.mean(losses)),validation=value))
         if value<best:
             best=value;bad=0
-            torch.save(dict(state=model.state_dict(),model_kwargs=kw,profile=profile,seed=seed,epoch=epoch+1,
+            torch.save(dict(state=model.state_dict(),model_kwargs=kw,profile=profile,architecture='paper-v1' if profile=='paper' else 'legacy',target_schema=TARGET_SCHEMA if profile=='paper' else 'perspective-v1',seed=seed,epoch=epoch+1,
                             train_documents=len(tr),validation_documents=len(va)),output)
         else:bad+=1
         if bad>=patience:break
