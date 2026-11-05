@@ -1,4 +1,0 @@
-9	shared-in40_shared-dyn	--models M6 --dynamics shared --input-path shared_proj --shared-proj-dim 40 --seed 2
-10	shared-in128_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 128 --seed 0
-11	shared-in128_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 128 --seed 1
-12	shared-in128_perslot-dyn	--models M5 --input-path shared_proj --shared-proj-dim 128 --seed 2

@@ -1,6 +1,0 @@
-blocks130	--models M4 --block-readout --slot-dim 130 --seed 0
-blocks130	--models M4 --block-readout --slot-dim 130 --seed 1
-blocks130	--models M4 --block-readout --slot-dim 130 --seed 2
-plain130	--models M4 --slot-dim 130 --seed 0
-plain130	--models M4 --slot-dim 130 --seed 1
-plain130	--models M4 --slot-dim 130 --seed 2

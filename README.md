@@ -1,182 +1,49 @@
-# Hi-OnTop — Online Topic Segmentation for LLM Conversations
+# SITUATE
 
-> 임베딩 기반 **0-lag 실시간 화제분절기**. 인지과학 Structured Event Memory
-> (Franklin et al. 2020) 의 sticky-CRP prior + 온라인 local-MAP 추론을 대화
-> 화제 경계 감지로 재해석한다. 인코더는 고정(fine-tuning 없음), turn 당 O(1)
-> 업데이트로 look-ahead 없이 경계를 판정 — 버퍼드 LLM 분절기 대비 우월한
-> **quality–latency–cost tradeoff** 를 목표로 한다.
+EACL 2027 논문 「SITUATE: Multidimensional Situation Tracking for Online Narrative Event Segmentation」의 5축 상황추적 서사 분절입니다. 인물·공간·시간·인과·의도를 학습하며 Hi-OnTop 코사인 분절기를 가져오지 않습니다.
 
----
+## 설치 및 실행
 
-## 핵심 아이디어
-
-- **계보**: SEM / SEM2 (`nicktfranklin/SEM2`) 의 scene segmentation 을 대화
-  화제분절로 계승. sticky-CRP (sCRP) prior + Gaussian likelihood + local-MAP.
-- **온라인 / 0-lag**: 발화가 도착하는 대로 turn 단위로 임베딩 → 현재 화제와의
-  prediction-error 신호로 경계 여부를 즉시 판정. 미래 turn look-ahead 불필요.
-- **calibration-free 임계**: 코퍼스별 정답 경계 없이도 동작하도록 percentile
-  기반 적응 임계(μ + cσ) 를 사용. (Score-vs-percentile 곡선으로 일반성 검증.)
-- **인코더 교체 가능**: MiniLM(int8) / bge / Sentence-T5 / multilingual 등.
-  기본은 경량 MiniLM-int8 (실시간 latency 목적).
-
-현재 진행 중인 문제·설계·시도 이력은 `handoff/` 폴더, 알고리즘 정의는
-`context/methodology/` 를 본다.
-
----
-
-## 레포 구조
-
-```
-Hi-OnTop/
-├── CLAUDE.md                 작업 규칙 (환경 분리, 커밋, Step 완료 프로토콜)
-├── README.md                 이 파일
-├── plan.md                   구현 로드맵 (segmentation Phase)
-├── RelatedWork.md            관련 연구 정리
-├── API_GUIDE.md              OpenAI-호환 LLM 엔드포인트 사용 가이드 (LLM baseline용)
-├── pyproject.toml / uv.lock  project metadata + deps (uv-native, hatchling)
-│
-├── context/                  설계 문서
-│   ├── 00-sem-paper.md           SEM 논문 정리 (계승/대체/폐기 매핑)
-│   ├── sem-equations.md          SEM 식 원본 reference
-│   ├── 01-hi-ontop-design.md     Hi-OnTop 분절 설계 확정본
-│   ├── 02-math-model.md          수식 확정본 + HP regime
-│   ├── 03-architecture.md        모듈 구조
-│   ├── 04-benchmarks.md          벤치마크 메타 (토픽 경계 평가 축)
-│   ├── 05-open-questions.md      열린 질문
-│   ├── 06-decision-log.md        설계 결정 이력 (append-only)
-│   └── methodology/              **버전별 방법론 (최우선 관리)** + infrastructure
-│
-├── src/hi_ontop/             코어 구현 (+ 버전 variant 누적)
-│   ├── embedding.py              인코더 wrapper (local / API backend)
-│   ├── topic.py                  centroid + diag σ² + Welford 온라인 업데이트
-│   ├── scrp.py                   sticky_crp_unnormed (SEM 식 1)
-│   ├── sem_core.py               HiOnTopSegmenter.assign() — online MAP 루프
-│   ├── hi_ontop.py               HiOnTop reduced form (δ_eff streaming)
-│   ├── hi_ontop_v2.py            adaptive-threshold variant
-│   ├── hi_ontop_deneut.py            de-neut+적응β 신호, threshold deploy (drift/AMI; DTS는 hi_ontop)
-│   ├── hi_ontop_lex.py           TextTiling-style lexical variant
-│   ├── secom_adapter.py          SeCom 백엔드로 Hi-OnTop 분절기 주입
-│   ├── next_embed_head.py        v4.3.2 δ_model (next-embedding regressor)
-│   ├── event_rnn.py              v3.3.1 GRU event model
-│   ├── config.py                 HP config loader (configs/hiontop.json)
-│   ├── baselines/                온라인 분절 baseline (texttiling/greedyseg/graphseg/csm)
-│   └── sem_core_v*.py / topic_v*.py  연구 variant 이력
-│
-├── methods/                  분절 baseline 원본 (TextTiling/GreedySeg/GraphSeg/CSM/RoBERTa)
-├── scripts/                  실행/분석 스크립트 (run_topiocqa_*, run_tiage_*, ami_*, 등)
-├── tests/                    pytest (core sCRP/topic/sem_core + variant + baseline)
-├── notebooks/                얇은 wrapper (Colab 편의용, 선택적)
-├── templates/                experiment-log / module 템플릿
-├── archive/                  의도적으로 폐기한 산출물 (legacy_sem_ablation 등)
-├── outputs/                  실험 산출물 (experiments/REPORT.md, reports/, figures/, design/)
-└── SEM/                      SEM2 레포 (참조 전용)
+```sh
+uv sync --frozen --extra test --extra annotation
+uv run situate segment examples/input.txt
+uv run pytest -q
 ```
 
-> Portability 원칙: `notebooks/` 는 `scripts/*.py` 를 호출하는 얇은 wrapper.
-> 통째로 삭제해도 `python scripts/X.py` 직접 실행으로 모든 실험 가능.
+Python 3.11을 사용합니다. 입력 한 줄이 문장 하나입니다. 최초 실행 때 동결 MPNet 인코더가 다운로드됩니다. 기본 CPU 실행에는 API 키가 필요 없습니다. CUDA 환경은 --device cuda로 지정할 수 있으나 이번 검증 환경은 macOS CPU입니다.
 
----
-
-## 평가
-
-**평가 축 = 토픽 경계 감지** (`context/04-benchmarks.md`):
-
-| 벤치마크 | 성격 | 지표 |
-|---|---|---|
-| TopiOCQA | factoid topic 경계 | turn-transition F1 |
-| TIAGE | chit-chat topic 경계 | F1 |
-| AMI | 회의 화제 경계 (음성/streaming) | Pk / WindowDiff / F1 |
-| dialseg711 / superseg | dialogue segmentation | Pk / WD / F1 |
-
-**비교 baseline**: 고전(TextTiling / BayesSeg / GreedySeg / GraphSeg / CSM /
-RoBERTa-supervised), LLM 프롬프팅(Def-DTS), 그리고 streaming-buffer LLM 분절기
-(buffer↓ 품질 열화 곡선 vs Hi-OnTop 0-lag).
-
-**downstream 적용**: SeCom-swap 으로 Long-MT-Bench+ QA 품질 비교 — 분절 결과를
-compress/retrieve 파이프라인에 주입 (LLM-agnostic).
-
----
-
-## 외부 레포 / 데이터 (clone 필요, gitignored)
-
-**SEM2 — 알고리즘 참조** (이미 레포에 `SEM/` 으로 포함; 재설치 시):
-```bash
-git clone --depth=1 https://github.com/nicktfranklin/SEM2 SEM && rm -rf SEM/.git
+```sh
+uv run situate segment embeddings.npy --embeddings
+uv run situate segment examples/input.txt --checkpoint runs/paper.pt
 ```
 
-**분절 벤치마크**:
-```bash
-mkdir -p benchmarks && cd benchmarks
-git clone --depth=1 https://github.com/McGill-NLP/topiocqa     # topic 경계 (factoid)
-git clone --depth=1 https://github.com/HuiyuanXie/tiage        # topic 경계 (chit-chat)
-cd ..
-# TopiOCQA dev: cd benchmarks/topiocqa && python download_data.py \
-#   --resource data.topiocqa_dataset.dev --output_dir .
+임베딩은 [문장수, 768]이며 L2 정규화합니다. `boundaries`는 새 구간 첫 문장 인덱스(0부터), `segments`는 [시작, 끝 제외], `axis_probs`는 전이별 5축 확률, `scores`는 그 합입니다. 결과 구간을 메모리 시스템에 전달할 수 있습니다. EM-LLM 자체와 LongBench 데이터는 포함하지 않습니다.
+
+## 반드시 구분할 두 설정
+
+- `pretrained-i2`: 원본 M5.pt를 그대로 보존한 실행 가능한 학습본. 의도는 carry 없이 none→goal만 변화로 취급하고 다음 임베딩을 예측하도록 학습되었습니다. 원본 온라인 임계의 첫 전이 억제도 유지합니다.
+- `paper`: 논문 규칙을 적용한 재학습 경로. 의도 carry-forward, valid goal 변화, 다음 잠재상태 예측 손실을 사용합니다. **이 설정으로 새로 학습된 완전한 모델은 아직 없습니다.** 짧은 합성 학습으로 저장·재로딩만 검증했습니다.
+
+기존 학습본을 논문 설정의 체크포인트로 표시하지 않습니다. 전체 차이는 PAPER_ALIGNMENT.md를 참조하세요.
+
+## 주석 → 학습 데이터 → 학습
+
+입력 JSON: `{"group":"author_or_source_id","sentences":["sentence 1","sentence 2",...]}`.
+
+```sh
+# 사용자가 준비한 Qwen3.6-35B-A3B FP8 호환 서버와 OPENAI_API_KEY 환경변수 필요
+uv run situate annotate story.json states.json --model <served-model-id> --base-url <openai-compatible-url>
+uv run situate prepare states.json data/train/story.npz --profile paper
+uv run situate train data/train data/val runs/paper.pt --profile paper --seed 0
+uv run situate evaluate evaluation.json
 ```
 
-**DTS baseline 외부 레포** (`methods/`·`scripts/run_defdts_*`·`*_online`·`*_prefix` 가 참조):
-```bash
-# 1) Def-DTS (tiage/dialseg711/superseg jsonl + segeval metric 원천)
-git clone --depth=1 https://github.com/ElPlaguister/Def-DTS.git benchmarks/Def-DTS
-# 2) SuperDialseg 툴킷 (TextTiling/BayesSeg 원본 offline)
-git clone --depth=1 https://github.com/Coldog2333/SuperDialseg.git benchmarks/superdialseg
-```
+annotate는 전체 이야기에서 닫힌 어휘를 뽑고, 축마다 독립 순서로 섞어 20문장씩 v3.1 프롬프트에 전달합니다. temperature=0, enable_thinking=false를 사용합니다. 호출할 때만 외부 서버에 이야기가 전송되며 이번 검증에서는 외부 주석 API를 호출하지 않았습니다. 반환 항목 누락·중복·범위 오류는 실패 처리합니다. prepare는 원래 순서에서 결정론적 변화 타깃을 만들고 동결 인코더로 임베딩합니다. 이미 embeddings가 있으면 재인코딩하지 않습니다.
 
-**BayesSeg 빌드** (offline·online, 상세 = decision-log 2026-05-20):
-```bash
-sudo apt install -y default-jdk ant
-git clone --depth=1 https://github.com/jacobeisenstein/bayes-seg /tmp/bs
-B=benchmarks/superdialseg/src/super_dialseg/models/bayesseg
-cp -r /tmp/bs/lib "$B/lib"; cp /tmp/bs/build.xml "$B/build.xml"; mkdir -p "$B/classes"
-cd "$B" && ant build && cd -
-```
+학습 입력 NPZ에는 embeddings[T,768], resets[T-1,5], states[T,3], group 문자열, profile 문자열이 필요합니다. states 열은 perspective(4), temporal_shift_marker(4), event_type(10)입니다. 디렉터리는 먼저 생성하세요. train/val의 동일 group 또는 동일 임베딩 문서는 차단합니다. 논문 데이터의 공식 분할을 별도로 제공해야 하며 테스트셋을 학습·선택에 사용하지 마세요.
 
-**GraphSeg** 는 GloVe 6B.300d 추가 download 필요:
-```bash
-mkdir -p benchmarks/glove && cd benchmarks/glove && \
-    curl -LO https://nlp.stanford.edu/data/glove.6B.zip && \
-    unzip glove.6B.zip && rm glove.6B.zip && cd ../..
-uv run python -c "import nltk; [nltk.download(p) for p in ('averaged_perceptron_tagger','averaged_perceptron_tagger_eng','brown','punkt_tab')]"
-```
+기본 Adam 3e-4, 100 epochs, patience 3, batch 48입니다. 4개 seed는 각각 다른 출력 경로로 실행합니다. 기존 출력은 덮어쓰지 않습니다. 전체 11,836편 데이터와 논문 4-seed 재학습은 이 저장소에 포함되지 않습니다. validation 문서 평균 손실로 조기 종료합니다.
 
-**CSM 학습** (DailyDialog 원본 + lxing532 코드) 은 `colab_csm_train.ipynb` 가
-Colab 에서 자동 clone + 의존성 핀 + STEP-RESUME 패치.
+## 이력
 
-**참고용 (clone 불필요, 코드 읽기 전용)**:
-
-| 레포 | 용도 |
-|---|---|
-| https://github.com/flippedAben/texttiling | TextTiling online 구현 참고 |
-
----
-
-## 빠른 시작
-
-```bash
-# 0. 환경 셋업 (uv 0.8+ 필요: https://docs.astral.sh/uv/)
-uv sync                                          # .venv + deps + hi_ontop editable install
-# (Colab 사용자는 setup_colab.ipynb 실행)
-
-# 1. core 테스트
-uv run python -m pytest tests/ -q
-
-# 2. 분절 평가 예시
-uv run python scripts/run_tiage_segmentation.py
-uv run python scripts/run_topiocqa_segmentation.py
-
-# 3. Step 완료 처리 (CLAUDE.md "Step 완료 프로토콜" 참조)
-uv run python scripts/check_step_done.py
-```
-
-LLM baseline (Def-DTS / streaming-buffer LLM) 실행 시 OpenAI-호환 엔드포인트
-설정은 `API_GUIDE.md` 와 `.env.example` 참조.
-
----
-
-## 제약 (CLAUDE.md 전문 참조)
-
-- **No fine-tuning** (외부 LLM 학습 금지; 인코더도 고정)
-- **PyTorch only** (TensorFlow/Keras 금지)
-- **SEM2 코드 복사 금지** (참조만 허용)
-- **설계 변경은 반드시 `context/06-decision-log.md` append 후**
-- **환경 분리**: `setup_colab.ipynb` 만 Colab 의존 허용, 그 외 파일은 로컬/git 기준 동작
+이전 혼합 저장소 전체는 `archive/pre-separation-2026-11-05/main`에 있습니다. main의 모델 파일은 원본과 동일하며 별도 다운로드가 필요 없습니다. SOURCE_PROVENANCE.json으로 체크포인트와 논문 SHA-256을 대조할 수 있습니다.

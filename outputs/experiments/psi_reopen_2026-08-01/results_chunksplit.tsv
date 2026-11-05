@@ -1,8 +1,0 @@
-D_i2_nopsi_residsigned	0	0.4167	946s	--split phase1_i2 --psi none --head-feat resid_signed
-D_chainq_nopsi_residsigned	0	0.3469	951s	--split phase1_chainq_i2 --psi none --head-feat resid_signed
-A_chainq_psicummean_delta	0	0.3421	1131s	--split phase1_chainq_i2 --psi cummean --head-feat delta
-A_i2_psicummean_delta	0	0.4086	1137s	--split phase1_i2 --psi cummean --head-feat delta
-C_i2_psicummean_residsigned	0	0.4160	1145s	--split phase1_i2 --psi cummean --head-feat resid_signed
-C_chainq_psicummean_residsigned	0	0.3484	1148s	--split phase1_chainq_i2 --psi cummean --head-feat resid_signed
-B_chainq_psiema_delta	0	0.3456	1221s	--split phase1_chainq_i2 --psi ema --head-feat delta
-B_i2_psiema_delta	0	0.4075	1238s	--split phase1_i2 --psi ema --head-feat delta

@@ -1,0 +1,24 @@
+{
+  "project": "SITUATE",
+  "paper_file": "_EACL_2027__SITUATE__Multidimensional_Situation_Tracking_for_Online_Narrative_Event_Segmentation.pdf",
+  "paper_sha256": "531dfd7b9357e40e8a13884f2ce60ad04bbbd27d87458f525eefff4fe5d12b61",
+  "original_repositories": {
+    "Hi-EM/dts": "7caefbae5365af254b2ff6455c6e6879a3867656",
+    "Hi-OnTop/main": "3a09736c8553a972abb5cbaff9019edc54e6a404"
+  },
+  "source_repository_after_rename": "SSU-NLP/SITUATE",
+  "source_commit": "3a09736c8553a972abb5cbaff9019edc54e6a404",
+  "changes": "Independent package, CLI, validation and paper/pretrained distinction; see PAPER_ALIGNMENT.md",
+  "files": {
+    "src/situate/__init__.py": "78c59724bf1a95f797ecac56f649617a4fb20537b46da700222cbe455caa9cd3",
+    "src/situate/annotation.py": "dd463b3e09c856b881bb14839ca0ad82ba2146d03760adde3bd241f0675743be",
+    "src/situate/annotation_prompts.py": "69cd24016b9292d14c8fc4e0de18297a0f792678c188934085d374edc3af8986",
+    "src/situate/checkpoints/pretrained_i2.pt": "61d2ddaeb14643998f1d81eb10c1745e929e9e0a11906d211a6f2c23e9caa4a3",
+    "src/situate/cli.py": "487821e693737cfe4a7a9c269cab54e9d723b680a3039fa4c561ffe8fb3fa1bd",
+    "src/situate/factored_slot.py": "5bc4cddc6917c4f83c491838fc711e9272665fc176ef7afa777df5bcd7a3c9f7",
+    "src/situate/inference.py": "8879280e2abb63a4973f71007ad5377324be2dbd82dc7b3c8ee7af28c5b0d339",
+    "src/situate/labels.py": "98cdbdf31d49893f76a84b22ee24e1883ed8ecb307ca1149da1e9270f3eaa3b3",
+    "src/situate/metrics.py": "53f86521421b323057041dfd4ec34317fefb0a3eb89fb67f3d9242b093f718ab",
+    "src/situate/training.py": "a0fa17869d8184c819aa5c34c896b3e2cbd715a061c638f8bbea16b262b1e767"
+  }
+}
